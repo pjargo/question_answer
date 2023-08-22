@@ -1,0 +1,22 @@
+{
+    "Title": "Constructions of Lagrangian cobordisms",
+    "Authors": [
+        "Sarah Blackwell",
+        "No\\xc3\\xa9mie Legout",
+        "Caitlin Leverson",
+        "Ma\\xc3\\xbflis Limouzineau",
+        "Ziva Myer",
+        "Yu Pan",
+        "Samantha Pezzimenti",
+        "Lara Simone Su\\xc3\\xa1rez",
+        "Lisa Traynor"
+    ],
+    "Abstract": "Lagrangian cobordisms between Legendrian knots arise in Symplectic FieldTheory and impose an interesting and not well-understood relation on Legendrianknots. There are some known \"elementary\" building blocks for Lagrangiancobordisms that are smoothly the attachment of $0$- and $1$-handles. Animportant question is whether every pair of non-empty Legendrians that arerelated by a connected Lagrangian cobordism can be related by a ribbonLagrangian cobordism, in particular one that is \"decomposable\" into acomposition of these elementary building blocks. We will describe these andother combinatorial building blocks as well as some geometric methods,involving the theory of satellites, to construct Lagrangian cobordisms. We willthen survey some known results, derived through Heegaard Floer Homology andcontact surgery, that may provide a pathway to proving the existence ofnondecomposable (nonribbon) Lagrangian cobordisms.",
+    "Subjects": [
+        "Symplectic Geometry (math.SG)",
+        "Geometric Topology (math.GT)"
+    ],
+    "Submissions": {
+        "[v1]": "Thu, 31 Dec 2020 19:01:01 UTC (62 KB)"
+    }
+}
