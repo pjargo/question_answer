@@ -34,6 +34,7 @@ Detector = detector.Detector(trainer.train_on_content(data, 'abcdefghijklmnopqrs
 from tqdm import tqdm  # For progress bar
 import numpy as np
 
+
 def get_sha256(content):
     '''
     Gets the sha256 code from the content of the entry
@@ -385,7 +386,8 @@ def get_wordnet_pos(word):
     return tag_dict.get(tag, wordnet.NOUN)
 
 
-def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', stem=False, abstract=True, embedding_layer_model=None, chunk_overlap=0):
+def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', stem=False, abstract=True, 
+                       embedding_layer_model=None, tokenizer=bert_base_tokenizer, chunk_overlap=0):
     '''
     Parses and cleans and stores jsons of a directory of pdfs by extracting from each: document name, abstract, normalized text, original text, normalized abstract, path, sha256 hash, language, language probability, and date (if arxiv document authors, title, and url as well).
 
@@ -396,6 +398,7 @@ def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', stem=Fals
     stem (bool, optional) - True means to stem the words and False is to leave as is (default = False)
     abstract (bool, optional) - True means to normalize the abstract (default = False)
     chunk_overlap (int, optional) -  chunking the documents overlap by this many tokens(default = 0)
+    tokenizer (, optional) - model to tokenize text
 
     '''
     
@@ -407,7 +410,7 @@ def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', stem=Fals
     pdf_df = pdfs_to_df(directory)
 
     # Tokenize the dataframe of extracted and cleaned text
-    pdf_df = tokenize_df_of_texts(pdf_df)
+    pdf_df = tokenize_df_of_texts(pdf_df, tokenizer=tokenizer)
 
     # Chunk the Tokenized dataframe
     parsed_list = chunk_df_of_tokens(pdf_df, chunk_size=100, embedding_model=embedding_layer_model, overlap=chunk_overlap)
@@ -465,6 +468,7 @@ def tokenize_df_of_texts(df, tokenizer=bert_base_tokenizer):
     """
 
     print("tokenize the processed text...")
+    print(tokenizer)
     texts = df["Text"].tolist()
     tokenized_texts = [tokenizer.tokenize(text) for text in texts]
     df['tokens'] = tokenized_texts
@@ -530,7 +534,9 @@ def pdf_to_dict(directory, filename):
                     'url' : '',
                     'date' : date,
                     'tokens':[],
-                    'token_embeddings':[]}
+                    'tokens_less_sw':[],
+                    'token_embeddings':[],
+                    'token_embeddings_less_sw':[]}
     
     return section_dict
 
@@ -649,7 +655,7 @@ def remove_non_text_elements(text):
 def clean_text(text):
     # Remove unnecessary whitespace, ...
     text = re.sub(r'\s+', ' ', text)  # Replace multiple spaces with a single space
-    return text.strip()  # Remove leading and trailing whitespace
+    return text.lower().strip()  # Remove leading and trailing whitespace
 
 
 def remove_non_word_chars(text):
@@ -672,13 +678,21 @@ def normalize_text(text):
     return normalized_text
 
 
-def chunk_tokens(tokens, max_chunk_length=100, overlap=0):
+def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[]):
     """
     
     :param tokens: ([int]) A list of integers representing the token ID's
-    "param max_chunk: (int) The lengeth of the sequence of each ch 
+    :param max_chunk_length: (int) The lengeth of the sequence of each chunk
+    :param overlap: By how many tokens 
+    :param additional_stopwords: ['from', 'subject', 're', 'edu', 'use', 'table', 'figure', 'arxiv', 'sin', 'cos', 'tan', 'log', 'fx', 'ft', 'dx', 'dt', 'xt']
     """
+    nltk_stop_words = nltk.corpus.stopwords.words('english')
+    nltk_stop_words = nltk_stop_words + ["Ġ" + word for word in nltk_stop_words]
+    if additional_stopwords:
+        nltk_stop_words.extend(additional_stopwords)
+
     chunked_tokens = []
+    chunked_tokens_less_sw = []
     current_chunk = []
     current_length = 0
     i = 0
@@ -688,6 +702,9 @@ def chunk_tokens(tokens, max_chunk_length=100, overlap=0):
         current_length += 1
         if current_length >= max_chunk_length:
             chunked_tokens.append(current_chunk)
+
+            chunked_tokens_less_sw.append([t for t in current_chunk if t not in nltk_stop_words])
+
             current_chunk = []
             current_length = 0
             i -= overlap   # Intential overlap of the token arrays
@@ -695,7 +712,9 @@ def chunk_tokens(tokens, max_chunk_length=100, overlap=0):
             
     if current_chunk:
         chunked_tokens.append(current_chunk)
-    return chunked_tokens
+        chunked_tokens_less_sw.append([t for t in current_chunk if t not in nltk_stop_words])
+
+    return chunked_tokens, chunked_tokens_less_sw
 
 
 def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0):
@@ -708,27 +727,34 @@ def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0):
     """
     # Create a new DataFrame to store the chunked data
     chunked_data = []
-
     # Iterate over each row in the original DataFrame
     for _, row in df.iterrows():
         # Get the tokens and metadata for the current row
         tokens = row["tokens"]
-        metadata = row.drop("tokens").drop("token_embeddings") # Drop the "tokens" column from the metadata
+        metadata = row.drop("tokens").drop("token_embeddings").drop("token_embeddings_less_sw").drop("tokens_less_sw") # Drop the "tokens" column from the metadata
 
         # Chunk the tokens into sequences of length 100
-        chunked_tokens = chunk_tokens(tokens, max_chunk_length=chunk_size, overlap=overlap)
+        chunked_tokens, chunked_tokens_less_sw = chunk_tokens(tokens, max_chunk_length=chunk_size, overlap=overlap)
 
-        # Pad the sequences less than 100 tokens
-        padded_tokens = [tokens + ["[PAD]"] * (100 - len(tokens)) for tokens in chunked_tokens]
+        # Pad the sequences less than 100 tokens, don't need to pad the chunked token less stop words. Only for candidate search
+        padded_tokens = [token_list + ["[PAD]"] * (100 - len(token_list)) for token_list in chunked_tokens]
+        # padded_tokens_less_sw = [token_list + ["[PAD]"] * (100 - len(token_list)) for token_list in chunked_tokens_less_sw]
 
         if embedding_model:
-            embedded_tokens = [tokens_to_embeddings(tokens, embedding_model, RANDOM=False).tolist() for tokens in padded_tokens]
+            embedded_tokens = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False).tolist() for token_list in padded_tokens]
+            embedded_tokens_less_sw = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False).tolist() for token_list in chunked_tokens_less_sw]
         else: 
-            embedded_tokens = [[] for tokens in padded_tokens]
+            embedded_tokens = [[] for token_list in padded_tokens]
+            embedded_tokens_less_sw = [[] for token_list in padded_tokens_less_sw]
 
         # Create new rows for each chunked and padded tokens along with metadata
-        for padded_tokens_chunk, embedded_tokens_chunk in zip(padded_tokens, embedded_tokens):
-            new_row = {"tokens": padded_tokens_chunk, "token_embeddings": embedded_tokens_chunk, **metadata}
+        for padded_tokens_chunk, embedded_tokens_chunk, tokens_chunk_less_sw, embedded_tokens_chunk_less_sw in zip(padded_tokens, embedded_tokens, chunked_tokens_less_sw, embedded_tokens_less_sw):
+
+            new_row = {"tokens": padded_tokens_chunk,
+                       "tokens_less_sw": tokens_chunk_less_sw,
+                       "token_embeddings": embedded_tokens_chunk, 
+                       "token_embeddings_less_sw": embedded_tokens_chunk_less_sw,
+                       **metadata}
             chunked_data.append(new_row)
 
     # Create the new DataFrame with the chunked and padded data
