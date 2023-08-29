@@ -48,81 +48,6 @@ def get_sha256(content):
     return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
 
-def get_document_date(filepath, is_arxiv=False):
-    if filepath.endswith('.pdf'):
-
-        if is_arxiv:
-            doc = fitz.open(filepath)
-            page1 = doc[0].get_text('text')
-            dates = []
-            for p in page1.split('\n'):
-                if p.startswith('arXiv'):
-                    for ent in entity_finder(p):
-                        if ent['label'] == "DATE":
-                            try:
-                                date = parser.parse(ent['text'])
-                            except:
-                                continue
-
-                            if date < datetime.now():
-                                dates.append(date)
-                    break
-            
-        else:
-            text = get_title_text(filepath)
-            dates = []
-            for ent in entity_finder(text):
-                if ent['label'] == "DATE":
-                    try:
-                        date = parser.parse(ent['text'])
-                    except:
-                        continue
-                    
-                    if date < datetime.now():
-                        dates.append(date)
-
-        if dates == []:
-            if is_arxiv:
-                return get_document_date(filepath, is_arxiv=False)
-            else:
-                return ''
-        else:
-            return min(dates, key=lambda x: abs(x - datetime.now())).strftime('%m/%d/%Y')
-
-
-def get_title_text(filepath):
-    if not filepath.endswith('.pdf'):
-        print('File path not a pdf')
-        return None
-    
-    doc = fitz.open(filepath)
-
-    full_text = ''
-    page1 = ''
-    for i, page in enumerate(doc):
-        full_text += page.get_text('text')
-        if i == 0:
-            page1 = full_text
-        
-    re_section = r'ABSTRACT|Abstract|Summary|SUMMARY' 
-    p = re.compile(re_section)
-    indices = [m.start() for m in p.finditer(full_text)]
-    if len(indices) > 0:
-        i_start = indices[0]
-        text = full_text[:i_start]
-    else:
-        print('\thas no \'Abstract\' section.')
-        re_section = r'INTRODUCTION|Introduction|\n1\s' 
-        p = re.compile(re_section)
-        indices = [m.start() for m in p.finditer(full_text)]
-        if len(indices) > 0:
-            i_start = indices[0]
-            text = full_text[:i_start]
-        else:
-            text = page1
-    
-    return text
-
 
 def get_text(filepath, ru_model_path=None, zh_model_path=None):
     '''
@@ -168,143 +93,9 @@ def get_text(filepath, ru_model_path=None, zh_model_path=None):
         print('\tlanguage detection error!')
         langs = ''
 
-    re_section = r'ABSTRACT|Abstract|Summary|SUMMARY' 
-    p = re.compile(re_section)
-    indices = [m.end() for m in p.finditer(full_text)]
-    if len(indices) > 0:
-        i_start = indices[0]
-    else:
-        i_start = 0
-        print('\thas no \'Abstract\' section.')
-        
-    re_section = r'REFERENCE|Reference|Bibliography|BIBLIOGRAPHY|ACKNOWLEDGMENTS|Acknowledgments' 
-    p = re.compile(re_section)
-    indices = [m.start(0) for m in p.finditer(full_text)]
-    if len(indices) > 0:
-        i_end = indices[-1]
-    else:
-        i_end = -1
-        print('\thas no \'References\' section.')
-        
-    re_section = r'INTRODUCTION|Introduction|\n1\s' 
-    p = re.compile(re_section)
-    indices = [m.start(0) for m in p.finditer(full_text)]
 
-    if len(indices) > 0:
-        i_end_abstract = indices[0]
-    else:
-        i_end_abstract = i_start
-        print('\thas no \'introduction\' section.')
+    return full_text, langs
 
-    return full_text[i_start:i_end], full_text[i_start:i_end_abstract], langs
-
-
-def stem_words(list_text):
-    '''
-    Stem words in corpus.
-
-    Parameters
-    -----------
-    list_text (list of str) - list of texts representing the corpus
-
-    Returns
-    -------
-    list of str - the list of the text with words stemmed from "list_text"
-    '''
-    print('stemming words...')
-    stem_dict = {}
-    snowball = SnowballStemmer("english")
-    for i in range(len(list_text)):
-        temp = []
-        for w in list_text[i].split():
-            stemmed = snowball.stem(w)
-            temp.append(stemmed)
-            if stemmed in stem_dict.keys():
-                if w not in stem_dict[stemmed]:
-                    stem_dict[stemmed].append(w)
-            else:
-                stem_dict[stemmed] = [w]
-        list_text[i] = ' '.join(temp).replace('  ', ' ')
-    print('words stemmed.\n')
-    return list_text
-
-
-def ngram(list_text, n=2, min_count=5, threshold=100):
-    '''
-    N-grams words from a corpus
-
-    Parameters
-    ----------
-    list_text (list of str) - the list of texts that represent the corpus
-    n (int) - the number of "grams" allowed, for example, 2 = bigram and 3 = trigram ... (default = 2)
-    min_count (int) - the minimum number of times a pharse has to show up to be considered a phrase (defualt = 5).
-    threshold (int) - Represent a score threshold for forming the phrases (higher means fewer phrases). A phrase of words a followed by b is accepted if the score of the phrase is greater than threshold. Heavily depends on concrete scoring-function, see the scoring parameter. (default = 100)
-    
-    Returns
-    -------
-    list of str - the list of texts with the "ngrammed" words
-    '''
-    print('ngramming words...')
-    numbers = {2:'bigram', 3:'trigram', 4:'quadgram'}
-    texts = [sentence.split(' ') for sentence in list_text]
-    init_gram = {}
-    for i in range(2,n+1):
-        try:
-            print(numbers[i], 'model started...')
-        except:
-            print('%s-gram model started...')
-        ngram = gensim.models.Phrases(texts, min_count=min_count, threshold=threshold)
-        ngram_mod = gensim.models.phrases.Phraser(ngram)
-        texts = [ngram_mod[doc] for doc in texts]
-           
-        try:
-            print(numbers[i], 'model finished.\n')
-        except:
-            print('%s-gram model finished.\n')
-            
-        init_gram[i] = {'ngram':ngram, 'ngram_mod':ngram_mod, 'texts':texts}
-    
-    return [' '.join(text) for text in texts]
-
-
-def entity_finder(text):
-    # 2.6 Entity Names Annotation
-    # Names (often referred to as “Named Entities”) are annotated according to the following
-    # set of types:
-    # PERSON People, including fictional
-    # NORP Nationalities or religious or political groups
-    # FACILITY Buildings, airports, highways, bridges, etc.
-    # ORGANIZATION Companies, agencies, institutions, etc.
-    # GPE Countries, cities, states
-    # LOCATION Non-GPE locations, mountain ranges, bodies of water
-    # PRODUCT Vehicles, weapons, foods, etc. (Not services)
-    # EVENT Named hurricanes, battles, wars, sports events, etc.
-    # WORK OF ART Titles of books, songs, etc.
-    # LAW Named documents made into laws 
-    #  OntoNotes Release 5.0
-    # 22
-    # LANGUAGE Any named language
-    # The following values are also annotated in a style similar to names:
-    # DATE Absolute or relative dates or periods
-    # TIME Times smaller than a day
-    # PERCENT Percentage (including “%”)
-    # MONEY Monetary values, including unit
-    # QUANTITY Measurements, as of weight or distance
-    # ORDINAL “first”, “second”
-    # CARDINAL Numerals that do not fall under another typ
-    doc = nlp(text)
-    ents = []
-    for ent in doc.ents:
-        if ent.label_ in ['CARDINAL', 'PERCENT', 'MONEY', 'ORDINAL', 'QUANTITY'] or '\n' in ent.text:
-            continue
-        else:
-            ent_chars = {'text': ent.text, # The str of the named entity phrase.
-                         'start': ent.start_char, # Source str index of the first char.
-                         'end': ent.end_char, # Source str index of the last+1 char.
-                         'label': ent.label_} # A str label for the entity type.
-            #print(ent_chars)
-            ents.append(ent_chars)
-    return ents
 
 
 def removing_meta_data(nlp, text, remove_tags=['PERSON', 'FAC', 'GPE', 'LOC', 'EVENT', 'WORK_OF_ART', 'LAW', 'DATE', 'TIME', 'PERCENT', 'MONEY', 'QUANTITY', 'ORDINAL', 'CARDINAL']):
@@ -350,7 +141,7 @@ def removing_meta_data(nlp, text, remove_tags=['PERSON', 'FAC', 'GPE', 'LOC', 'E
     '''
         
     doc = nlp(text)
-    #str_tags = [(X.text, X.label_) for X in doc.ents]
+
     removed = []
     for ent in doc.ents:
         if ent.label_ == 'PERSON' and len(ent.text.strip().split(' ')) < 2:
@@ -386,8 +177,8 @@ def get_wordnet_pos(word):
     return tag_dict.get(tag, wordnet.NOUN)
 
 
-def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', stem=False, abstract=True, 
-                       embedding_layer_model=None, tokenizer=bert_base_tokenizer, chunk_overlap=0):
+def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', embedding_layer_model=None, 
+                       tokenizer=bert_base_tokenizer, chunk_size=100, chunk_overlap=0, additional_stopwords=[]):
     '''
     Parses and cleans and stores jsons of a directory of pdfs by extracting from each: document name, abstract, normalized text, original text, normalized abstract, path, sha256 hash, language, language probability, and date (if arxiv document authors, title, and url as well).
 
@@ -410,10 +201,11 @@ def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', stem=Fals
     pdf_df = pdfs_to_df(directory)
 
     # Tokenize the dataframe of extracted and cleaned text
-    pdf_df = tokenize_df_of_texts(pdf_df, tokenizer=tokenizer)
+    pdf_df = tokenize_df_of_texts(pdf_df, tokenizer=tokenizer, REMOVE_SW_COL=False, additional_stopwords=[])
 
     # Chunk the Tokenized dataframe
-    parsed_list = chunk_df_of_tokens(pdf_df, chunk_size=100, embedding_model=embedding_layer_model, overlap=chunk_overlap)
+    parsed_list = chunk_df_of_tokens(pdf_df, chunk_size=chunk_size, embedding_model=embedding_layer_model, 
+                                     overlap=chunk_overlap, additional_stopwords=additional_stopwords, tokenizer=tokenizer)
         
     parsed_dict = {i : doc for i, doc in enumerate(parsed_list)}
     
@@ -449,6 +241,7 @@ def pdfs_to_df(directory):
     # Put each dictionary into a dataframe and clean it
     df = pd.DataFrame(docs)
     print('processing text...')
+
     df = cleanup(df, col='Text', replace_math=False, replace_numbers=False, 
                  check_pos=False, remove_meta_data=False, remove_punct=False, 
                  add_acronym_periods=False, lemmatize=False, stem=False, 
@@ -456,43 +249,6 @@ def pdfs_to_df(directory):
                  remove_non_text=True, remove_spec_chars=True, remove_line_breaks=True,
                  remove_unicode=True)
     return df 
-
-
-def tokenize_df_of_texts(df, tokenizer=bert_base_tokenizer):
-    """
-    Use BERT tokenizer to tokenize a dataframe of extracted text
-
-    :param df: (pandas.DataFrame) dataframe with 'TEXT' column
-    :param tokenizer: (BertTokenizer.from_pretrained('bert-base-uncased'))
-    :return: (pandas.DataFrame) modified dataframe
-    """
-
-    print("tokenize the processed text...")
-    print(tokenizer)
-    texts = df["Text"].tolist()
-    tokenized_texts = [tokenizer.tokenize(text) for text in texts]
-    df['tokens'] = tokenized_texts
-
-    return df
-
-
-def chunk_df_of_tokens(df, chunk_size=100, embedding_model=None, overlap=0):
-    """
-    Chunk the dataframe that has previously been tokenized
-
-    :param df: (pandas.DataFrame)
-    :param chunk_size: (int) Size of chunk we split or pad list of tokens into
-    :param embedding_model: put tokens into their word embeddings
-    :param overlap: (int) By how many tokens we want the chunks to overlap
-    :return: Pandas.DataFrame tranformed then put into a dictionary - a list of dictionary with the following keys: Document, Abstract, Text, Abstract_Original, Original_Text, Path, sha_256, laguage, language_probability, Authors, Tilte, url, date
-    """
-    print("Chunking the tokenized text")
-    chunked_df = get_chunked_df(df, chunk_size=100, embedding_model=embedding_model, overlap=overlap)
-    # chunked_df = chunked_df.drop(columns=["Original_Text"])
-    print("\nprinting the shape of chunked dataframe")
-    print(chunked_df.shape)
-            
-    return chunked_df.T.to_dict().values()
 
 
 def pdf_to_dict(directory, filename):
@@ -509,36 +265,216 @@ def pdf_to_dict(directory, filename):
     dict - a dictionary with the following keys: Document, Abstract, Text, Abstract_Original, Original_Text, Path, sha_256, laguage, language_probability, Authors, Tilte, url, date
     '''
     filepath = os.path.join(directory, filename)
-    text, abstract_text, langs = get_text(filepath)
+    text, langs = get_text(filepath)
+
     if text == '':
         return {}
-    if langs == '':
-        language = ''
-        language_prob = 0.0
-    else:
-        language = langs[0].lang
-        language_prob = langs[0].prob
+
+    language_prob = 0.0 if langs == '' else langs[0].prob
+    language = '' if langs == '' else langs[0].lang
+
     sha256 = get_sha256(text)
-    date = get_document_date(filepath, is_arxiv=True)
+
     section_dict = {'Document': filename,
-                    'Abstract': abstract_text,
-                    'Text' : text,
-                    'Abstract_Original': abstract_text,
-                    'Original_Text' : text,
                     'Path' : filepath,
+                    'Text' : text,
+                    'Original_Text' : text,
                     'sha_256': sha256,
                     'language' : language,
                     'language_probability' : language_prob,
-                    'Authors' : '',
-                    'Title' : '',
-                    'url' : '',
-                    'date' : date,
+                    'chunk_text':'',
+                    'chunk_text_less_sw':'',
                     'tokens':[],
                     'tokens_less_sw':[],
                     'token_embeddings':[],
                     'token_embeddings_less_sw':[]}
     
     return section_dict
+
+
+
+def tokenize_df_of_texts(df, tokenizer=bert_base_tokenizer, REMOVE_SW_COL=False, additional_stopwords=[]):
+    """
+    Use BERT tokenizer to tokenize a dataframe of extracted text
+
+    :param df: (pandas.DataFrame) dataframe with 'TEXT' column
+    :param tokenizer: (BertTokenizer.from_pretrained('bert-base-uncased'))
+    :return: (pandas.DataFrame) modified dataframe
+    """
+
+    print("tokenize the processed text...")
+    
+    texts = df["Text"].tolist()
+    tokenized_texts = [tokenizer.tokenize(text) for text in texts]
+    df['tokens'] = tokenized_texts
+
+    if REMOVE_SW_COL:
+        nltk_stop_words = nltk.corpus.stopwords.words('english')
+        nltk_stop_words = nltk_stop_words + ["Ġ" + word for word in nltk_stop_words]
+        if additional_stopwords:
+            nltk_stop_words.extend(additional_stopwords)
+        nltk_stop_words = set(nltk_stop_words)
+
+        tokenized_texts_less_sw = [[token for token in tokens_list if token not in nltk_stop_words] for tokens_list in tokenized_texts]
+        df['tokens_less_sw'] = tokenized_texts_less_sw
+
+    return df
+
+
+def chunk_df_of_tokens(df, chunk_size=100, embedding_model=None, overlap=0, additional_stopwords=[], tokenizer=bert_base_tokenizer):
+    """
+    Chunk the dataframe that has previously been tokenized
+
+    :param df: (pandas.DataFrame)
+    :param chunk_size: (int) Size of chunk we split or pad list of tokens into
+    :param embedding_model: put tokens into their word embeddings
+    :param overlap: (int) By how many tokens we want the chunks to overlap
+    :return: Pandas.DataFrame tranformed then put into a dictionary - a list of dictionary with the following keys: Document, Abstract, Text, Abstract_Original, Original_Text, Path, sha_256, laguage, language_probability, Authors, Tilte, url, date
+    """
+    print("Chunking the tokenized text...")
+    chunked_df = get_chunked_df(df, chunk_size=chunk_size, embedding_model=embedding_model, overlap=overlap, additional_stopwords=additional_stopwords, tokenizer=tokenizer)
+    print("\nprinting the shape of chunked dataframe")
+    print(chunked_df.shape)
+            
+    return chunked_df.T.to_dict().values()
+
+
+def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0, additional_stopwords=[], tokenizer=bert_base_tokenizer):
+    """
+    Chunk the 'tokens' column in the dataframe and optionally get the embeddings of the tokens
+
+    :param df: (pandas.DataFrame) dataframe of parsed pdf documents
+    :param chunk_size: Number of tokens per chunk
+    :param model: (optional) Embedding Layer
+    """
+    # Create a new DataFrame to store the chunked data
+    chunked_data = []
+    # Iterate over each row in the original DataFrame
+    for _, row in df.iterrows():
+        # Get the tokens and metadata for the current row
+        tokens = row["tokens"]
+        metadata = row.drop("tokens").drop("token_embeddings").drop("token_embeddings_less_sw")\
+            .drop("tokens_less_sw").drop("chunk_text").drop("chunk_text_less_sw") # Drop the "tokens" column from the metadata
+
+        # Chunk the tokens into sequences of length 100
+        chunked_tokens, chunked_tokens_less_sw, chunked_text, chunked_text_less_sw = chunk_tokens(tokens, max_chunk_length=chunk_size, overlap=overlap, additional_stopwords=additional_stopwords, tokenizer=tokenizer)
+
+        # Pad the sequences less than 100 tokens, don't need to pad the chunked token less stop words. Only for candidate search
+        padded_tokens = [token_list + ["[PAD]"] * (100 - len(token_list)) for token_list in chunked_tokens]
+
+        if embedding_model:
+            embedded_tokens = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False).tolist() for token_list in padded_tokens]
+            embedded_tokens_less_sw = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False).tolist() for token_list in chunked_tokens_less_sw]
+        else: 
+            embedded_tokens = [[] for token_list in padded_tokens]
+            embedded_tokens_less_sw = [[] for token_list in padded_tokens_less_sw]
+
+        # Create new rows for each chunked and padded tokens along with metadata
+        for padded_tokens_chunk, embedded_tokens_chunk, tokens_chunk_less_sw, embedded_tokens_chunk_less_sw, chunk_text, chunk_text_less_sw in\
+            zip(padded_tokens, embedded_tokens, chunked_tokens_less_sw, embedded_tokens_less_sw, chunked_text, chunked_text_less_sw):
+
+            new_row = {"chunk_text": chunk_text,
+                       "chunk_text_less_sw": chunk_text_less_sw,
+                       "tokens": padded_tokens_chunk,
+                       "tokens_less_sw": tokens_chunk_less_sw,
+                       "token_embeddings": embedded_tokens_chunk, 
+                       "token_embeddings_less_sw": embedded_tokens_chunk_less_sw,
+                       **metadata}
+            chunked_data.append(new_row)
+
+    # Create the new DataFrame with the chunked and padded data
+    chunked_df = pd.DataFrame(chunked_data)
+
+    # Return he resulting DataFrame with chunked and padded tokens and metadata
+    return chunked_df
+
+
+def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[], tokenizer=bert_base_tokenizer):
+    """
+    
+    :param tokens: ([int]) A list of integers representing the token ID's
+    :param max_chunk_length: (int) The lengeth of the sequence of each chunk
+    :param overlap: By how many tokens 
+    :param additional_stopwords: ['from', 'subject', 're', 'edu', 'use', 'table', 'figure', 'arxiv', 'sin', 'cos', 'tan', 'log', 'fx', 'ft', 'dx', 'dt', 'xt']
+    """
+    nltk_stop_words = nltk.corpus.stopwords.words('english')
+    nltk_stop_words += ["Ġ" + word for word in nltk_stop_words]
+    if additional_stopwords:
+        nltk_stop_words.extend(additional_stopwords)
+    nltk_stop_words = set(nltk_stop_words)
+
+    chunked_tokens = []
+    chunked_tokens_less_sw = []
+
+    chunk_text = []
+    chunk_text_less_sw = []
+
+    current_chunk = []
+    current_length = 0
+    i = 0
+
+    while i < len(tokens):
+        token = tokens[i]
+        current_chunk.append(token)
+        current_length += 1
+        if current_length >= max_chunk_length:
+            chunked_tokens.append(current_chunk)
+
+            current_chunk_less_sw = [t for t in current_chunk if t not in nltk_stop_words]
+            chunked_tokens_less_sw.append(current_chunk_less_sw)
+
+            current_chunk_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk))
+            chunk_text.append(current_chunk_text)
+            current_chunk_text_less_sw = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk_less_sw))
+            chunk_text_less_sw.append(current_chunk_text_less_sw)
+
+            current_chunk = []
+            current_length = 0
+            i -= overlap   # Intential overlap of the token arrays
+        i+=1
+            
+    if current_chunk:
+        chunked_tokens.append(current_chunk)
+        current_chunk_less_sw = [t for t in current_chunk if t not in nltk_stop_words]
+        chunked_tokens_less_sw.append(current_chunk_less_sw)
+
+        current_chunk_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk))
+        chunk_text.append(current_chunk_text)
+        current_chunk_text_less_sw = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk_less_sw))
+        chunk_text_less_sw.append(current_chunk_text)
+
+
+    return chunked_tokens, chunked_tokens_less_sw, chunk_text, chunk_text_less_sw
+
+
+def tokens_to_embeddings(tokens_list, model, RANDOM=True):
+    """
+    Convert a list of tokens to an embeddings matrix
+    
+    :param tokens_list: list of tokens to be embedded
+    :param model: Enbeddings Layer Model
+    """
+    
+    # Initialize an array to store embeddings
+    query_embeddings = []
+
+    # Loop through tokens in the tokenized query
+    for token in tokens_list:
+        if token in model.wv:
+            query_embeddings.append(model.wv[token])
+        else:
+            # Handle unseen tokens with random embeddings
+            if RANDOM:
+                random_embedding = np.random.rand(model.vector_size)
+                query_embeddings.append(random_embedding)
+            else:
+                zero_embedding = np.zeros(model.vector_size)
+                query_embeddings.append(zero_embedding)
+
+    # Convert the list of embeddings to a NumPy array
+    query_embeddings = np.array(query_embeddings)
+
+    return query_embeddings
 
 
 def cleanup(df, col='Text', replace_math=False, 
@@ -676,124 +612,4 @@ def normalize_text(text):
     # Normalize the text to NFC (Normal Form C)
     normalized_text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8')
     return normalized_text
-
-
-def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[]):
-    """
-    
-    :param tokens: ([int]) A list of integers representing the token ID's
-    :param max_chunk_length: (int) The lengeth of the sequence of each chunk
-    :param overlap: By how many tokens 
-    :param additional_stopwords: ['from', 'subject', 're', 'edu', 'use', 'table', 'figure', 'arxiv', 'sin', 'cos', 'tan', 'log', 'fx', 'ft', 'dx', 'dt', 'xt']
-    """
-    nltk_stop_words = nltk.corpus.stopwords.words('english')
-    nltk_stop_words = nltk_stop_words + ["Ġ" + word for word in nltk_stop_words]
-    if additional_stopwords:
-        nltk_stop_words.extend(additional_stopwords)
-
-    chunked_tokens = []
-    chunked_tokens_less_sw = []
-    current_chunk = []
-    current_length = 0
-    i = 0
-    while i < len(tokens):
-        token = tokens[i]
-        current_chunk.append(token)
-        current_length += 1
-        if current_length >= max_chunk_length:
-            chunked_tokens.append(current_chunk)
-
-            chunked_tokens_less_sw.append([t for t in current_chunk if t not in nltk_stop_words])
-
-            current_chunk = []
-            current_length = 0
-            i -= overlap   # Intential overlap of the token arrays
-        i+=1
-            
-    if current_chunk:
-        chunked_tokens.append(current_chunk)
-        chunked_tokens_less_sw.append([t for t in current_chunk if t not in nltk_stop_words])
-
-    return chunked_tokens, chunked_tokens_less_sw
-
-
-def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0):
-    """
-    Chunk the 'tokens' column in the dataframe and optionally get the embeddings of the tokens
-
-    :param df: (pandas.DataFrame) dataframe of parsed pdf documents
-    :param chunk_size: Number of tokens per chunk
-    :param model: (optional) Embedding Layer
-    """
-    # Create a new DataFrame to store the chunked data
-    chunked_data = []
-    # Iterate over each row in the original DataFrame
-    for _, row in df.iterrows():
-        # Get the tokens and metadata for the current row
-        tokens = row["tokens"]
-        metadata = row.drop("tokens").drop("token_embeddings").drop("token_embeddings_less_sw").drop("tokens_less_sw") # Drop the "tokens" column from the metadata
-
-        # Chunk the tokens into sequences of length 100
-        chunked_tokens, chunked_tokens_less_sw = chunk_tokens(tokens, max_chunk_length=chunk_size, overlap=overlap)
-
-        # Pad the sequences less than 100 tokens, don't need to pad the chunked token less stop words. Only for candidate search
-        padded_tokens = [token_list + ["[PAD]"] * (100 - len(token_list)) for token_list in chunked_tokens]
-        # padded_tokens_less_sw = [token_list + ["[PAD]"] * (100 - len(token_list)) for token_list in chunked_tokens_less_sw]
-
-        if embedding_model:
-            embedded_tokens = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False).tolist() for token_list in padded_tokens]
-            embedded_tokens_less_sw = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False).tolist() for token_list in chunked_tokens_less_sw]
-        else: 
-            embedded_tokens = [[] for token_list in padded_tokens]
-            embedded_tokens_less_sw = [[] for token_list in padded_tokens_less_sw]
-
-        # Create new rows for each chunked and padded tokens along with metadata
-        for padded_tokens_chunk, embedded_tokens_chunk, tokens_chunk_less_sw, embedded_tokens_chunk_less_sw in zip(padded_tokens, embedded_tokens, chunked_tokens_less_sw, embedded_tokens_less_sw):
-
-            new_row = {"tokens": padded_tokens_chunk,
-                       "tokens_less_sw": tokens_chunk_less_sw,
-                       "token_embeddings": embedded_tokens_chunk, 
-                       "token_embeddings_less_sw": embedded_tokens_chunk_less_sw,
-                       **metadata}
-            chunked_data.append(new_row)
-
-    # Create the new DataFrame with the chunked and padded data
-    chunked_df = pd.DataFrame(chunked_data)
-
-    # Return he resulting DataFrame with chunked and padded tokens and metadata
-    return chunked_df
-
-
-
-def tokens_to_embeddings(tokens_list, model, RANDOM=True):
-    """
-    Convert a list of tokens to an embeddings matrix
-    
-    :param tokens_list: list of tokens to be embedded
-    :param model: Enbeddings Layer Model
-    """
-    
-    # Initialize an array to store embeddings
-    query_embeddings = []
-
-    # Loop through tokens in the tokenized query
-    for token in tokens_list:
-        if token in model.wv:
-            query_embeddings.append(model.wv[token])
-        else:
-            # Handle unseen tokens with random embeddings
-            if RANDOM:
-                random_embedding = np.random.rand(model.vector_size)
-                query_embeddings.append(random_embedding)
-            else:
-                zero_embedding = np.zeros(model.vector_size)
-                query_embeddings.append(zero_embedding)
-
-    # Convert the list of embeddings to a NumPy array
-    query_embeddings = np.array(query_embeddings)
-
-    return query_embeddings
-
-
-
 

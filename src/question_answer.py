@@ -4,27 +4,22 @@ import json
 import os
 import re
 import sys
+import json
 
 def post_process_output(decoded_text):
-    # Define a list of punctuation marks to consider
-    punctuation_marks = ['.', ',', ';', ':', '!', '?']
+	# Define a list of punctuation marks to consider
+	punctuation_marks = ['.', ',', ';', ':', '!', '?']
 
-    # Use regular expressions to find punctuation tokens with spaces before them
-    pattern = r'(\w)\s?(' + r'|'.join(re.escape(p) for p in punctuation_marks) + r')\s'
-    processed_text = re.sub(pattern, r'\1\2 ', decoded_text)
+	# Use regular expressions to find punctuation tokens with spaces before them
+	pattern = r'(\w)\s?(' + r'|'.join(re.escape(p) for p in punctuation_marks) + r')\s'
+	processed_text = re.sub(pattern, r'\1\2 ', decoded_text)
 
-    return processed_text
+	return processed_text
 
 
 def print_answer(input, output, confidence_threshold=0):
 	start_logits = output.start_logits
 	end_logits = output.end_logits
-	# print(output)
-	# print(type(start_logits))
-	# print(start_logits)
-
-	# start_idx = torch.argmax(start_logits)
-	# end_idx = torch.argmax(end_logits)
 
 	combined_scores = start_logits.unsqueeze(-1) + end_logits.unsqueeze(1)
 
@@ -51,27 +46,29 @@ def print_answer(input, output, confidence_threshold=0):
 	print("Question: ", query_text)
 	# Check if the confidence score is below the threshold
 	if confidence_score < confidence_threshold:
-	    print("Sorry, I don't have information on that topic.")
+		print("Sorry, I don't have information on that topic.")
 	else:
-	    print("Answer:", answer)
-	    print()
-	    print("Confidence:", confidence_score)
+		print("Answer:", answer)
+		print()
+		print("Confidence:", confidence_score)
 
 if __name__ == '__main__':
-	MERGE = False
-	candidate_responses = dict()
+	with open(os.path.join("..", "vars", "hyperparameters1.json")) as json_file:
+		hyperparams = json.load(json_file)
+		print(json.dumps(hyperparams, indent=4))
+		model_name = hyperparams["transformer_model_name"]
 
-	print(f"running for model:{sys.argv[1]}")
-	if sys.argv[1].lower() in ['bert', 'bert-base-uncased', 'bert_base']:
+	if model_name.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
 		# Load the pre-trained BERT model and tokenizer
-		model_name = "bert-base-uncased"
 		tokenizer = BertTokenizer.from_pretrained(model_name)
 		model = BertForQuestionAnswering.from_pretrained(model_name)
 	else:
 		# Load the pre-trained RoBERTa model and tokenizer
-		model_name = "deepset/roberta-base-squad2"
-		tokenizer = RobertaTokenizer.from_pretrained(model_name)
+		tokenizer = RobertaTokenizer.from_pretrained(model_name, add_prefix_space = True)
 		model = RobertaForQuestionAnswering.from_pretrained(model_name)
+
+	MERGE = False
+	candidate_responses = dict()
 
 	# Specify the directory path containing JSON files
 	candidate_docs_dir = os.path.join('..', 'candidate_docs')
@@ -91,27 +88,27 @@ if __name__ == '__main__':
 
 	# Load tokenized query and candidate documents from JSON files
 	with open(query_dir_fname, "r") as query_file:
-	    query_data = json.load(query_file)
-	    query_tokens = query_data["tokenized_query"]
-	    query_text = query_data["query"]
+		query_data = json.load(query_file)
+		query_tokens = query_data["tokenized_query"]
+		query_text = query_data["query"]
 
 	# Concatenate tokens from all candidate chunks
 	candidate_docs_tokens_concatenated = []
 	prev_doc = None   
 	for candidate in candidate_docs_subdir_list:
-	    with open(os.path.join(candidate_docs_subdir,candidate), "r") as docs_file:
-	        candidate_docs_data = json.load(docs_file)
-	        candidate_docs_tokens = candidate_docs_data["tokens"]
+		with open(os.path.join(candidate_docs_subdir,candidate), "r") as docs_file:
+			candidate_docs_data = json.load(docs_file)
+			candidate_docs_tokens = candidate_docs_data["tokens"]
 
-	        # Add a seperation token between documents unless they are consecutive numbers, indicating they are not seperate chunks
-	        if prev_doc and int(candidate.split(".")[0]) != int(prev_doc.split(".")[0]) + 1:
-	        	print(tokenizer.decode(tokenizer.sep_token_id))
-	        	candidate_docs_tokens_concatenated.extend([tokenizer.sep_token_id]) 
-	        candidate_docs_tokens_concatenated.extend(candidate_docs_tokens)
-	        prev_doc = candidate
-
-	chunk_size = 350  # Choose an appropriate chunk size
-	chunks = [candidate_docs_tokens_concatenated[i:i+chunk_size] for i in range(0, len(candidate_docs_tokens_concatenated), chunk_size)]
+			# Add a seperation token between documents unless they are consecutive numbers, indicating they are not seperate chunks
+			if prev_doc and int(candidate.split(".")[0]) != int(prev_doc.split(".")[0]) + 1:
+				candidate_docs_tokens_concatenated.extend([tokenizer.sep_token_id]) 
+			
+			candidate_docs_tokens_concatenated.extend(candidate_docs_tokens)
+			prev_doc = candidate
+	print("length of concatenated documents: ", len(candidate_docs_tokens_concatenated))
+	context_size = 1000 # hyperparams['context_size']  # Choose an appropriate chunk size
+	chunks = [candidate_docs_tokens_concatenated[i:i+context_size] for i in range(0, len(candidate_docs_tokens_concatenated), context_size)]
 
 	# Initialize lists to store start and end logits for each chunk
 	start_logits_list = []
@@ -119,29 +116,34 @@ if __name__ == '__main__':
 
 	# Process each chunk separately and store logits
 	with torch.no_grad():
-	    for i, chunk in enumerate(chunks):
-	        inputs = tokenizer.encode_plus(query_tokens, chunk, max_length=512, return_tensors="pt", padding="max_length", truncation=True)
+		for i, chunk in enumerate(chunks):
+			print("length of chunk: ", len(chunk))
+			chunk = [str(token) if isinstance(token, int) else token for token in chunk]
 
-	        # Roberta Model does not have token_type_ids as an input argument
-	        if sys.argv[1].lower() in ['bert', 'bert-base-uncased', 'bert_base']:
-	        	outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], token_type_ids=inputs["token_type_ids"])
-	        else:
-	        	outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
-	        
-	        start_logits_list.append(outputs.start_logits)
-	        end_logits_list.append(outputs.end_logits)
+			inputs = tokenizer.encode_plus(query_tokens, chunk, max_length=514, return_tensors="pt", padding="max_length", truncation=True)
 
-	        # store the outputs for each chunk
-        	candidate_responses[i] = { "inputs": inputs,
-        							   "ouptut": outputs,
-        							   "start_logits":outputs.start_logits,
-        							   "end_logits":outputs.end_logits,
-        							   "confidence_score": torch.max(torch.softmax(outputs.start_logits, dim=1)) 
-        							   }
-	        print("\n\n\n\n\n\n\n")
-	        print(tokenizer.convert_tokens_to_string(tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])))
-	        print()
-	        print_answer(inputs, outputs, 0)
+			# Roberta Model does not have token_type_ids as an input argument
+			if model_name.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
+				outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], token_type_ids=inputs["token_type_ids"])
+			else:
+				print("length of the input id's: ", inputs["input_ids"].size())
+				print("length of the attention_mask's: ", inputs["attention_mask"].size())
+				outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+			
+			start_logits_list.append(outputs.start_logits)
+			end_logits_list.append(outputs.end_logits)
+
+			# store the outputs for each chunk
+			candidate_responses[i] = { "inputs": inputs,
+									   "ouptut": outputs,
+									   "start_logits":outputs.start_logits,
+									   "end_logits":outputs.end_logits,
+									   "confidence_score": torch.max(torch.softmax(outputs.start_logits, dim=1)) 
+									   }
+			print("\n\n\n\n\n\n\n")
+			print(tokenizer.convert_tokens_to_string(tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])))
+			print()
+			print_answer(inputs, outputs, 0)
 
 	if MERGE:
 		# Merging responses from all chunks

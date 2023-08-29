@@ -1,0 +1,19 @@
+{
+    "TOKENIZER": "roberta",
+    "input_folder": "space_based_pdfs",
+    "model_fname": "deepset/roberta-base-squad2",
+    "vector_size": 100,
+    "window": 5,
+    "min_count": 1,
+    "sg": 0,
+    "TOKENS_TPYE": "tokens_less_sw",
+    "chunk_size": 100,
+    "chunk_overlap": 0,
+    "max_query_length": 20,
+    "top_N": 10,
+    "TOKENS_EMBEDDINGS": "query_search_less_sw",
+    "DOCUMENT_EMBEDDING": "token_embeddings_less_sw",
+    "METHOD": "MEAN_MAX",
+    "transformer_model_name": "deepset/roberta-base-squad2",
+    "context_size": 350
+}
