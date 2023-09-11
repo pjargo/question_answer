@@ -12,7 +12,6 @@ import os
 import pandas as pd
 import regex
 import re
-import spacy
 import swifter
 import string
 from nltk.tokenize import word_tokenize
@@ -184,7 +183,7 @@ def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', embedding
 
     Parameters
     ----------
-    directory (str) - directory that contains the pdf documents
+    directory (str) - directory that contains the pdf documents or a filepath to a single PDF file
     storage_dir (str, optional) - the directory that the jsons of parsed documents will be stored
     stem (bool, optional) - True means to stem the words and False is to leave as is (default = False)
     abstract (bool, optional) - True means to normalize the abstract (default = False)
@@ -193,11 +192,9 @@ def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', embedding
 
     '''
     
-    try:
+    if not os.path.isdir(storage_dir): # Make output directory if not exist
         os.mkdir(storage_dir)
-    except (FileExistsError):
-        pass
-    
+
     pdf_df = pdfs_to_df(directory)
 
     # Tokenize the dataframe of extracted and cleaned text
@@ -206,10 +203,21 @@ def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', embedding
     # Chunk the Tokenized dataframe
     parsed_list = chunk_df_of_tokens(pdf_df, chunk_size=chunk_size, embedding_model=embedding_layer_model, 
                                      overlap=chunk_overlap, additional_stopwords=additional_stopwords, tokenizer=tokenizer)
-        
-    parsed_dict = {i : doc for i, doc in enumerate(parsed_list)}
+    
+    doc_offset = 0   # Get the largest value in the storage directory if json files are already in there
+    if os.listdir(storage_dir):
+        for doc in os.listdir(storage_dir):
+            try:
+                temp = int(doc.split(".")[0])
+                if temp > doc_offset:
+                    doc_offset = temp
+            except ValueError:
+                continue
+
+    parsed_dict = {i+doc_offset : doc for i, doc in enumerate(parsed_list)}
     
     for fname, doc in parsed_dict.items():
+        doc['counter'] = fname
         with open(os.path.join(storage_dir, str(fname)+'.json'), 'w') as j_file:
                 json.dump(doc, j_file, indent=4)
                 
@@ -226,10 +234,15 @@ def pdfs_to_df(directory):
     -------
     dataframe
     '''
-    all_docx = os.listdir(directory)    
-    docs = []
+    try:
+        # Will cause exception if directory is a single file  
+        all_docx = os.listdir(directory)    
+    except NotADirectoryError:
+        all_docx = [os.path.basename(directory)]
+        directory = os.path.dirname(directory)
     
     # Get a list of dictionaries containing all the desired information, one for each pdf
+    docs = []
     for filepath in all_docx:
         if filepath.endswith('.pdf'):
             print(os.path.join(directory, filepath))
@@ -282,6 +295,7 @@ def pdf_to_dict(directory, filename):
                     'sha_256': sha256,
                     'language' : language,
                     'language_probability' : language_prob,
+                    'counter':0,
                     'chunk_text':'',
                     'chunk_text_less_sw':'',
                     'tokens':[],
@@ -358,7 +372,7 @@ def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0, addition
 
         # Chunk the tokens into sequences of length 100
         chunked_tokens, chunked_tokens_less_sw, chunked_text, chunked_text_less_sw = chunk_tokens(tokens, max_chunk_length=chunk_size, overlap=overlap, additional_stopwords=additional_stopwords, tokenizer=tokenizer)
-
+        
         # Pad the sequences less than 100 tokens, don't need to pad the chunked token less stop words. Only for candidate search
         padded_tokens = [token_list + ["[PAD]"] * (100 - len(token_list)) for token_list in chunked_tokens]
 
@@ -452,24 +466,44 @@ def tokens_to_embeddings(tokens_list, model, RANDOM=True):
     Convert a list of tokens to an embeddings matrix
     
     :param tokens_list: list of tokens to be embedded
-    :param model: Enbeddings Layer Model
+    :param model: Word2Vec or spaCy custom model
+    :param RANDOM: Whether to use random embeddings for unseen tokens (default=True)
+    :return: numpy array of embeddings for each input token
     """
     
     # Initialize an array to store embeddings
     query_embeddings = []
 
-    # Loop through tokens in the tokenized query
-    for token in tokens_list:
-        if token in model.wv:
-            query_embeddings.append(model.wv[token])
-        else:
-            # Handle unseen tokens with random embeddings
-            if RANDOM:
-                random_embedding = np.random.rand(model.vector_size)
-                query_embeddings.append(random_embedding)
+    # Check the type of the model
+    if isinstance(model, gensim.models.Word2Vec):
+        # Handle Word2Vec model
+        for token in tokens_list:
+            if token in model.wv:
+                query_embeddings.append(model.wv[token])
             else:
-                zero_embedding = np.zeros(model.vector_size)
-                query_embeddings.append(zero_embedding)
+                # Handle unseen tokens with random embeddings
+                if RANDOM:
+                    random_embedding = np.random.rand(model.vector_size)
+                    query_embeddings.append(random_embedding)
+                else:
+                    zero_embedding = np.zeros(model.vector_size)
+                    query_embeddings.append(zero_embedding)
+    elif isinstance(model, spacy.language.Language):
+        # Handle spaCy custom model
+        for token in tokens_list:
+            token = model(token)
+            if token.has_vector:
+                query_embeddings.append(token.vector)
+            else:
+                # Handle unseen tokens with random embeddings
+                if RANDOM:
+                    random_embedding = np.random.rand(model.vocab.vectors_length)
+                    query_embeddings.append(random_embedding)
+                else:
+                    zero_embedding = np.zeros(model.vocab.vectors_length)
+                    query_embeddings.append(zero_embedding)
+    else:
+        raise ValueError("Unsupported model type. Please provide a Gensim Word2Vec model or spaCy custom model.")
 
     # Convert the list of embeddings to a NumPy array
     query_embeddings = np.array(query_embeddings)

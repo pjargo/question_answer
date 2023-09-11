@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Search Page</title>
+    <style>
+        .highlight {
+            background-color: yellow;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Search</h1>
+    <form method="post" action="{% url 'search_view' %}">
+        {% csrf_token %}
+        <input type="text" name="query" placeholder="Enter your query">
+        <button type="submit">Search</button>
+    </form>
+
+    <!-- Display query text -->
+    {% if query_text %}
+    <h2>Your Query: {{ query_text }}</h2>
+    {% endif %}
+
+    <!-- Display results in a table -->
+    <table>
+        <thead>
+            <tr>
+                <th>Document Name</th>
+                <th>Answer</th>
+                <th>Confidence</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% load custom_filters %}
+            {% for result in results %}
+            {% if result.answer != "Sorry, I don't have information on that topic." %}
+            <tr>
+                <td>{{ result.document }}</td>
+                <td>{{ result.context|default:''|highlight_answer:result.answer|safe }}</td>
+                <td>{{ result.confidence_score }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

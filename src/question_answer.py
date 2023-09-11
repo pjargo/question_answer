@@ -33,7 +33,7 @@ def print_answer(input, output, confidence_threshold=0):
 
 	print(f"start and end logits: ", start_idx, end_idx)
 
-	answer_tokens = inputs["input_ids"][0][start_idx : end_idx + 1]
+	answer_tokens = input["input_ids"][0][start_idx : end_idx + 1]
 	answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
 	answer = post_process_output(answer)
 
@@ -120,7 +120,7 @@ if __name__ == '__main__':
 			print("length of chunk: ", len(chunk))
 			chunk = [str(token) if isinstance(token, int) else token for token in chunk]
 
-			inputs = tokenizer.encode_plus(query_tokens, chunk, max_length=514, return_tensors="pt", padding="max_length", truncation=True)
+			inputs = tokenizer.encode_plus(query_tokens, chunk, max_length=512, return_tensors="pt", padding="max_length", truncation=True)
 
 			# Roberta Model does not have token_type_ids as an input argument
 			if model_name.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
