@@ -74,14 +74,21 @@ WSGI_APPLICATION = 'question_answer_site.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'djongo',
+#         'NAME': 'question_answer',
+#         'ENFORCE_SCHEMA': False,
+#         'CLIENT': {
+#             'host': "mongodb+srv://new_user_1:password33566@cluster0.pog6zw2.mongodb.net/?retryWrites=true&w=majority",
+#         }
+#     }
+# }
+
 DATABASES = {
     'default': {
-        'ENGINE': 'djongo',
-        'NAME': 'question_answer',
-        'ENFORCE_SCHEMA': False,
-        'CLIENT': {
-            'host': "mongodb+srv://new_user_1:password33566@cluster0.pog6zw2.mongodb.net/?retryWrites=true&w=majority",
-        }
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / "db.sqlite3",
     }
 }
 

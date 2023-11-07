@@ -8,14 +8,14 @@
     "min_count": 3,
     "sg": 0,
     "TOKENS_TPYE": "tokens_less_sw",
-    "chunk_size": 350,
+    "chunk_size": 450,
     "chunk_overlap": 0,
     "max_query_length": 20,
-    "top_N": 20,
+    "top_N": 10,
     "TOKENS_EMBEDDINGS": "query_search_less_sw",
     "DOCUMENT_EMBEDDING": "token_embeddings_less_sw",
     "DOCUMENT_TOKENS": "tokens_less_sw",
     "METHOD": "COMBINE_MEAN",
     "transformer_model_name": "deepset/roberta-base-squad2",
-    "context_size": 350
+    "context_size": 500
 }

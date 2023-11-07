@@ -1,8 +1,6 @@
-from transformers import BertTokenizer, RobertaTokenizer
 import torch
 from gensim.models import Word2Vec
 import os
-import json
 import re
 import nltk
 import spacy
@@ -10,10 +8,11 @@ import numpy as np
 from urllib.parse import quote_plus
 from pymongo.server_api import ServerApi
 from pymongo.mongo_client import MongoClient
-from .utils import get_sha256, clean_text, remove_non_word_chars, clean_text, tokens_to_embeddings
+from .utils import remove_non_word_chars, clean_text, tokens_to_embeddings
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import BertTokenizer, BertForQuestionAnswering, RobertaTokenizer, RobertaForQuestionAnswering
-
+import time
+from spellchecker import SpellChecker
 
 hyperparams = {
     "TOKENIZER": "roberta",
@@ -25,14 +24,14 @@ hyperparams = {
     "min_count": 3,
     "sg": 0,
     "TOKENS_TPYE": "tokens_less_sw",
-    "chunk_size": 350,
+    "chunk_size": 400,
     "chunk_overlap": 0,
     "max_query_length": 20,
-    "top_N": 5,
+    "top_N": 15,
     "TOKENS_EMBEDDINGS": "query_search_less_sw",
     "DOCUMENT_EMBEDDING": "token_embeddings_less_sw",
     "DOCUMENT_TOKENS": "tokens_less_sw",
-    "METHOD": "MEAN_MAX",
+    "METHOD": "COMBINE_MEAN",
     "transformer_model_name": "deepset/roberta-base-squad2",
     "context_size": 500
 }
@@ -96,6 +95,7 @@ class MongoDb:
             cursor = collection.find({})
             for document in cursor:
                 yield document
+            # return cursor
 
 
 class QuestionAnswer():
@@ -151,13 +151,60 @@ class QuestionAnswer():
     def answer_question(self, query):
         query_data = self.process_query(query)
 
+        start_time = time.time()
+
         # Get the candidate documents, top_n_documents: (similarity_score, document dictionary)
         top_n_documents = self.get_candidate_docs(query_data)
         top_n_documents.sort(key=lambda x: x[1]['counter'])
 
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"Time taken to find top {self.top_N} documents: {elapsed_time} seconds")
+
+        start_time = time.time()
         # Get answer with possible answers (list of dictionaries {confidence: , doc:{} })
         answers = self.get_answer(query_data, top_n_documents)
-        return {"query": query_data["query"], "results": answers}
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"Time taken to get the answers: {elapsed_time} seconds")
+
+        # Fetch the source document text
+        source_text_dict = None
+        start_time = time.time()
+        if answers:
+            source_text_dict = self.fetch_source_documents(answers)
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"Time taken to get the source text: {elapsed_time} seconds")
+
+        return {"query": query_data["query"], "results": answers, "source_text_dictionary": source_text_dict}
+
+    def fetch_source_documents(self, detected_answers):
+        """
+
+        :param detected_answers: [[dict]] a list of dictionaries containing the answers to the query
+        :return:
+        """
+        # Get the list of unique documents
+        unique_documents = set()
+        for ans_dict in detected_answers:
+            unique_documents.add(ans_dict['document'])
+
+        # Escape the username and password
+        escaped_username = quote_plus(self.username)
+        escaped_password = quote_plus(self.password)
+
+        # use MongoDb class to connect to database instance and get the documents
+        mongo_db = MongoDb(escaped_username, escaped_password, self.cluster_url,
+                           self.database_name, "extracted_text")
+
+        source_text_dict = dict()
+        if mongo_db.connect():
+            for source_doc_name in unique_documents:
+                source_text_dict[source_doc_name] = \
+                    list(mongo_db.get_collection().find({'Document': source_doc_name}))[0]['Text']
+
+        return source_text_dict
 
     def get_answer(self, query_data, candidate_documents):
         # BERT or ROBERTA model?
@@ -185,11 +232,8 @@ class QuestionAnswer():
             candidate_docs_tokens_concatenated.extend(candidate_docs_tokens)
             prev_doc = candidate
 
-        chunks = [candidate_docs_tokens_concatenated[i:i + self.context_size] for i in
-                  range(0, len(candidate_docs_tokens_concatenated), self.context_size)]
-
         chunks = [(candidate['tokens'], candidate['Document']) for sim_score, candidate in candidate_documents]
-        print(chunks)
+
         candidate_responses_list = list()
         # Process each chunk separately and store logits
         with torch.no_grad():
@@ -206,13 +250,15 @@ class QuestionAnswer():
                 else:
                     outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
 
-                answer_confidence_dict = self.get_answer_and_confidence(inputs, outputs, 0)
+                answer_confidence_dict = self.get_answer_and_confidence(inputs, outputs, query_data['query'], 0)
                 answer_confidence_dict["document"] = doc
+                if answer_confidence_dict["answer"] == "Sorry, I don't have information on that topic.":
+                    continue
                 candidate_responses_list.append(answer_confidence_dict)
 
         return candidate_responses_list
 
-    def get_answer_and_confidence(self, input, output, confidence_threshold=0):
+    def get_answer_and_confidence(self, input, output, query, confidence_threshold=0):
         start_logits = output.start_logits
         end_logits = output.end_logits
 
@@ -224,25 +270,24 @@ class QuestionAnswer():
         # Convert the index to start and end indices
         start_idx = torch.div(max_combined_score_idx, combined_scores.size(1), rounding_mode='trunc')
         end_idx = max_combined_score_idx - start_idx * combined_scores.size(1)
-        print(f"Start: {start_idx} \t End: {end_idx}")
 
         answer_tokens = input["input_ids"][0][start_idx: end_idx + 1]
         answer = self.tokenizer.decode(answer_tokens, skip_special_tokens=True)
         answer = self.post_process_output(answer)
+
         if answer == "":
             answer = "Sorry, I don't have information on that topic."
+        if query in answer:  # If roberta return logits are entire context
+            escaped_query = re.escape(query)
+            answer = re.sub(escaped_query, "", answer)
 
         start_probs = torch.softmax(start_logits, dim=1)
         end_probs = torch.softmax(end_logits, dim=1)
         confidence_score = start_probs[0, start_idx] * end_probs[0, end_idx]
 
         context = self.tokenizer.convert_tokens_to_string(self.tokenizer.convert_ids_to_tokens(input["input_ids"][0]))
-        print("Context: ", context)
-        print("confidence: ", confidence_score.item())
-        print("answer: ", answer)
-        print("\n\n")
 
-        return {"confidence_score": confidence_score.item(), "answer": answer, "context":context}
+        return {"confidence_score": confidence_score.item(), "answer": answer, "context": context}
 
     def post_process_output(self, decoded_text):
         # Define a list of punctuation marks to consider
@@ -256,7 +301,6 @@ class QuestionAnswer():
 
     def get_candidate_docs(self, query_data):
         documents = self.get_documents_from_mongo()
-
         top_n_documents = self.get_topn_docs(documents_list=documents,
                                              query_data=query_data)
 
@@ -301,6 +345,12 @@ class QuestionAnswer():
         # Sort the similarity_scores in descending order based on the similarity score
         if similarity_scores:
             similarity_scores.sort(key=lambda x: x[0], reverse=True)
+            # for confidence, parsed_doc_chunk_dict in similarity_scores[:self.top_N]:
+            #     print(parsed_doc_chunk_dict['counter'])
+            #     print(self.tokenizer.convert_tokens_to_string(parsed_doc_chunk_dict['tokens']))
+            #     print(parsed_doc_chunk_dict['Document'])
+            #     print(confidence)
+            #     print()
             return similarity_scores[:self.top_N]
         return similarity_scores
 
@@ -314,6 +364,8 @@ class QuestionAnswer():
                            self.database_name, self.collection_name)
 
         if mongo_db.connect():
+            # cursor = mongo_db.iterate_documents()
+            # documents = list(cursor)
             documents = [document for document in mongo_db.iterate_documents()]
             print(f"Total documents: {mongo_db.count_documents()}")
             mongo_db.disconnect()
@@ -326,6 +378,9 @@ class QuestionAnswer():
 
         # clean query for BERT input
         user_query = clean_text(user_query)
+        print("Uncorrected query: ", user_query)
+        user_query = self.spell_check(user_query)
+        print("Corrected query: ", user_query)
 
         # clean query for candidate search
         user_query_for_search = remove_non_word_chars(user_query)
@@ -378,3 +433,48 @@ class QuestionAnswer():
         }
         # return json.dumps(query_data['query'], indent=2)
         return query_data
+
+    def spell_check(self, user_query):
+        spell = SpellChecker()
+
+        def correct_spelling(word):
+            # Your spelling correction logic
+            corrected_word = spell.correction(word)
+            return corrected_word if corrected_word else word  # Replace this with your actual correction logic
+
+        tokenized_query = self.tokenizer.tokenize(user_query)
+
+        # Group tokens into words
+        words = []
+        current_word = ""
+        for token in tokenized_query:
+            if token.startswith("Ġ"):  # Indicates the start of a new word
+                if current_word:
+                    words.append(current_word)
+                current_word = token[1:] if token[1:] not in ['(', '[', '{', '/', '\\'] else ''
+            else:
+                current_word += token if token not in [')', ']', '}', '/', '\\', '?', ".", "!"] else ''
+                if token in ['/', '\\']:
+                    words.append(current_word)
+                    current_word = ''
+        if current_word:
+            words.append(current_word)
+
+        # Identify misspelled words not in the embeddings model
+        misspelled_words = []
+        for word in words:
+            # Split punctuation and hyphens from the word
+            base_word = "".join(char for char in word if char.isalnum() or char in ["'", "-"])
+            if any(list(map(lambda x: not any(x),
+                            tokens_to_embeddings(self.tokenizer.tokenize(base_word), self.model, RANDOM=False)))):
+                # Add the original word to the misspelled_words list
+                misspelled_words.append(word)
+        # Correct the spelling of misspelled words
+        corrected_words = {word: correct_spelling(word) for word in misspelled_words}
+
+        # Replace misspelled words in the original query
+        corrected_query = user_query
+        for original, corrected in corrected_words.items():
+            corrected_query = corrected_query.replace(original, corrected)
+
+        return corrected_query

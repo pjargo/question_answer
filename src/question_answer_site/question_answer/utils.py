@@ -1,18 +1,15 @@
 from langdetect import detect_langs
-from nltk.stem import PorterStemmer, SnowballStemmer 
 import gensim
 import fitz
-import re
 import hashlib
 import spacy
-nlp = spacy.load('en_core_web_lg')
+# nlp = spacy.load('en_core_web_lg')
 import nltk
 from nltk.corpus import wordnet
 import os
 import pandas as pd
 import regex
 import re
-import swifter
 import string
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
@@ -30,7 +27,6 @@ file = req.urlopen(target_url)
 data = ' '.join([line.decode('utf-8') for line in file])
 Detector = detector.Detector(trainer.train_on_content(data, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'), threshold=4.0)
 
-from tqdm import tqdm  # For progress bar
 import numpy as np
 
 
@@ -75,85 +71,12 @@ def get_text(filepath, ru_model_path=None, zh_model_path=None):
     try:
         langs = detect_langs(full_text)
         language = langs[0].lang
-        if language != 'en':
-            print('not english:', language)
-            if language == 'zh-cn':
-                print('\ttranslating zh to en...')
-                full_text = zh_to_en(zh_model_path, full_text)
-                print('\ttranslated.')
-            elif language == 'ru':
-                print('\ttranslating ru to en...')
-                full_text = ru_to_en(ru_model_path, full_text)
-                print('\ttranslated.')
-            else:
-                print('translation model to english not created...yet')
-                return '', '', langs
     except:
         print('\tlanguage detection error!')
         langs = ''
 
 
     return full_text, langs
-
-
-
-def removing_meta_data(nlp, text, remove_tags=['PERSON', 'FAC', 'GPE', 'LOC', 'EVENT', 'WORK_OF_ART', 'LAW', 'DATE', 'TIME', 'PERCENT', 'MONEY', 'QUANTITY', 'ORDINAL', 'CARDINAL']):
-    '''
-    Removes meta data from text.
-
-    Parameters
-    ----------
-    nlp (spacy.en_core) - the spacy nlp model to find english tags/meta data
-    text (str) - text of which needs meta data removed
-    remove_tags (list) - list of entity name annotations/tags that are to be removed from "text" (default = ['PERSON', 'FAC', 'GPE', 'LOC', 'EVENT', 'WORK_OF_ART', 'LAW', 'DATE', 'TIME', 'PERCENT', 'MONEY', 'QUANTITY', 'ORDINAL', 'CARDINAL'])
-
-    Return
-    ------
-    str - the text with removed meta data
-
-    Notes
-    -----
-    # 2.6 Entity Names Annotation
-    # Names (often referred to as “Named Entities”) are annotated according to the following
-    # set of types:
-    # PERSON People, including fictional
-    # NORP Nationalities or religious or political groups
-    # FACILITY Buildings, airports, highways, bridges, etc.
-    # ORGANIZATION Companies, agencies, institutions, etc.
-    # GPE Countries, cities, states
-    # LOCATION Non-GPE locations, mountain ranges, bodies of water
-    # PRODUCT Vehicles, weapons, foods, etc. (Not services)
-    # EVENT Named hurricanes, battles, wars, sports events, etc.
-    # WORK OF ART Titles of books, songs, etc.
-    # LAW Named documents made into laws 
-    #  OntoNotes Release 5.0
-    # 22
-    # LANGUAGE Any named language
-    # The following values are also annotated in a style similar to names:
-    # DATE Absolute or relative dates or periods
-    # TIME Times smaller than a day
-    # PERCENT Percentage (including “%”)
-    # MONEY Monetary values, including unit
-    # QUANTITY Measurements, as of weight or distance
-    # ORDINAL “first”, “second”
-    # CARDINAL Numerals that do not fall under another typ
-    '''
-        
-    doc = nlp(text)
-
-    removed = []
-    for ent in doc.ents:
-        if ent.label_ == 'PERSON' and len(ent.text.strip().split(' ')) < 2:
-            continue
-        elif ent.label_ in remove_tags:
-            ent_chars = {'text': ent.text, # The str of the named entity phrase.
-                         'start': ent.start_char, # Source str index of the first char.
-                         'end': ent.end_char, # Source str index of the last+1 char.
-                         'label': ent.label_} # A str label for the entity type.
-            text = text.replace(ent.text, ' ')
-            removed.append(ent_chars)
-    
-    return text, removed
 
 
 def get_wordnet_pos(word):
@@ -302,7 +225,6 @@ def pdf_to_dict(directory, filename):
                     'token_embeddings_less_sw':[]}
     
     return section_dict
-
 
 
 def tokenize_df_of_texts(df, tokenizer=bert_base_tokenizer, REMOVE_SW_COL=False, additional_stopwords=[]):
@@ -545,8 +467,6 @@ def cleanup(df, col='Text', replace_math=False,
     
     if remove_meta_data:
         print('removing meta data...(Names, Dates, Places...)')
-        nlp = spacy.load("en_core_web_md")
-        df[col] = df[col].swifter.apply(lambda x: removing_meta_data(nlp, x)[0])
         
     if remove_punct:
         print('removing punctuation...')
