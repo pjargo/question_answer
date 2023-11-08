@@ -4,6 +4,57 @@
     <meta charset="UTF-8">
     <title>Search Page</title>
     <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f2f2f2;
+            margin: 0;
+            padding: 0;
+        }
+
+        h1 {
+            text-align: center;
+            color: #1a0dab;
+        }
+
+        form {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            width: 500px;
+            border: 1px solid #ddd;
+            border-radius: 5px 0 0 5px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #4285f4;
+            color: white;
+            border: 1px solid #4285f4;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+        }
+
+        table {
+            width: 80%;
+            margin: 20px auto;
+            border-collapse: collapse;
+            background-color: white;
+        }
+
+        th, td {
+            border: 1px solid #dddddd;
+            text-align: left;
+            padding: 8px;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
         .highlight {
             background-color: yellow;
             font-weight: bold;
@@ -14,7 +65,7 @@
     <h1>Project West Wing Search</h1>
     <form method="post" action="{% url 'search_view' %}">
         {% csrf_token %}
-        <input type="text" name="query" placeholder="Enter your query">
+        <input type="text" name="query" placeholder="Search Database...">
         <button type="submit">Search</button>
     </form>
 
@@ -23,31 +74,43 @@
     <h2>Your Query: {{ query_text }}</h2>
     {% endif %}
 
-    <!-- Display results in a table -->
-    <table>
-        <thead>
-            <tr>
-                <th>Document Name</th>
-                <th>Document Text with Answers Highlighted</th>
-                <th>Confidence Score</th> <!-- Add a new header for confidence score -->
-            </tr>
-        </thead>
-        <tbody>
-            {% load custom_filters %}
-            {% for document in highlighted_documents %}
-            <tr>
-                <td>{{ document.document|safe }}</td>
-                <td>
-                    {{ document.original_text|highlight_answer:document.highlights|safe }}<br>
-                </td>
-                <td>
-                    {% for answer, confidence_score in document.highlights %}
-                         <span>Answer: {{ answer }} | Confidence: {{ confidence_score }}</span><br><br>
-                    {% endfor %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    {% if highlighted_documents %}
+        <!-- Display results in a table -->
+        <table>
+            <thead>
+                <tr>
+                    <th>Document Name</th>
+                    <th>Document Text with Answers Highlighted</th>
+                    <th>Confidence Score</th> <!-- Add a new header for confidence score -->
+                </tr>
+            </thead>
+            <tbody>
+                {% load custom_filters %}
+                {% for document in highlighted_documents %}
+                    <tr>
+                        <td>{{ document.document|safe }}</td>
+                        <td>
+                            {{ document.original_text|highlight_answer:document.highlights|safe }}<br>
+                        </td>
+                        <td>
+                            {% for answer, confidence_score in document.highlights %}
+                                <span>Answer: {{ answer }} | Confidence: {{ confidence_score }}</span><br><br>
+                            {% endfor %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <!-- Display documents_if_no_answer if no answers were found -->
+        {% if documents_if_no_answer %}
+            <h2>No answers found. Possible relevant documents:</h2>
+            <ul>
+                {% for document_name in documents_if_no_answer %}
+                    <li>{{ document_name }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    {% endif %}
 </body>
 </html>

@@ -1,9 +1,7 @@
-from django.shortcuts import render
 from django.http import HttpResponse
 from django.shortcuts import render
 from .question_processing import QuestionAnswer
 from django.utils.html import escape
-import re
 
 # Create your views here.
 def index(request):
@@ -15,6 +13,7 @@ def search_view(request):
     results = []
     source_text_dict = {}
     highlighted_documents_list = []
+    doc_rec_set = {}
 
     if request.method == 'POST':
         query = request.POST.get('query', '')
@@ -23,6 +22,7 @@ def search_view(request):
         response_data = questionAnswer.answer_question(query)
         results = response_data.get("results", [])
         source_text_dict = response_data.get("source_text_dictionary", {})
+        doc_rec_set = response_data.get("no_ans_found", {})
 
         # Create a dictionary to store highlighted documents
         highlighted_documents = {}
@@ -46,12 +46,13 @@ def search_view(request):
             else:
                 # If document is already in the dictionary, append the new answer
                 highlighted_documents[document_name]['highlights'].append((answer, confidence_score))
-
         # Convert the values of highlighted_documents to a list for easier iteration in the template
         highlighted_documents_list = list(highlighted_documents.values())
+
 
     return render(request, 'search/search.html', {
         'query_text': query,
         'highlighted_documents': highlighted_documents_list,
+        'documents_if_no_answer':doc_rec_set
     })
 

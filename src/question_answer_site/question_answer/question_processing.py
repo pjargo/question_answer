@@ -6,9 +6,8 @@ import nltk
 import spacy
 import numpy as np
 from urllib.parse import quote_plus
-from pymongo.server_api import ServerApi
-from pymongo.mongo_client import MongoClient
-from .utils import remove_non_word_chars, clean_text, tokens_to_embeddings
+from .utils import remove_non_word_chars, clean_text, tokens_to_embeddings, post_process_output
+from .mongodb import MongoDb
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import BertTokenizer, BertForQuestionAnswering, RobertaTokenizer, RobertaForQuestionAnswering
 import time
@@ -27,7 +26,7 @@ hyperparams = {
     "chunk_size": 400,
     "chunk_overlap": 0,
     "max_query_length": 20,
-    "top_N": 15,
+    "top_N": 7,
     "TOKENS_EMBEDDINGS": "query_search_less_sw",
     "DOCUMENT_EMBEDDING": "token_embeddings_less_sw",
     "DOCUMENT_TOKENS": "tokens_less_sw",
@@ -35,67 +34,6 @@ hyperparams = {
     "transformer_model_name": "deepset/roberta-base-squad2",
     "context_size": 500
 }
-
-
-class MongoDb:
-    def __init__(self, username, password, cluster_url, database_name=None, collection_name=None):
-        self.username = username
-        self.password = password
-        self.cluster_url = cluster_url
-        self.database_name = database_name
-        self.collection_name = collection_name
-        self.client = None
-
-    def connect(self):
-        try:
-            uri = f"mongodb+srv://{self.username}:{self.password}@{self.cluster_url}.pog6zw2.mongodb.net/?retryWrites=true&w=majority"
-            # Create a new client and connect to the server
-            self.client = MongoClient(uri, server_api=ServerApi('1'))
-            return True
-        except Exception as e:
-            print(f"Error connecting to MongoDB: {e}")
-            return False
-
-    def disconnect(self):
-        if self.client:
-            self.client.close()
-            self.client = None
-
-    def get_collection(self):
-        if self.client:
-            db = self.client[self.database_name]
-            collection = db[self.collection_name]
-            return collection
-        else:
-            return None
-
-    def insert_document(self, document):
-        collection = self.get_collection()
-        if collection is not None:
-            try:
-                result = collection.insert_one(document)
-                return result.inserted_id
-            except Exception as e:
-                print(f"Error inserting document: {e}")
-        return None
-
-    def count_documents(self):
-        collection = self.get_collection()
-        if collection is not None:
-            try:
-                count = collection.count_documents({})
-                return count
-            except Exception as e:
-                print(f"Error counting documents: {e}")
-        return None
-
-    def iterate_documents(self):
-        collection = self.get_collection()
-        if collection is not None:
-            cursor = collection.find({})
-            for document in cursor:
-                yield document
-            # return cursor
 
 
 class QuestionAnswer():
@@ -129,7 +67,6 @@ class QuestionAnswer():
         elif TOKENS_EMBEDDINGS == "query_search":
             self.TOKENS = "tokenized_query_search"
             self.EMBEDDINGS = "query_embedding_search"
-        # elif TOKENS_EMBEDDINGS == "query_search_less_sw":
         else:
             self.TOKENS = "tokenized_query_search_less_sw"
             self.EMBEDDINGS = "query_embedding_search_less_sw"
@@ -169,15 +106,17 @@ class QuestionAnswer():
         print(f"Time taken to get the answers: {elapsed_time} seconds")
 
         # Fetch the source document text
-        source_text_dict = None
+        source_text_dict, doc_rec_list = None, None
         start_time = time.time()
         if answers:
             source_text_dict = self.fetch_source_documents(answers)
+        else:
+            doc_rec_set = set([doc_info[1]['Document'] for doc_info in top_n_documents])
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"Time taken to get the source text: {elapsed_time} seconds")
 
-        return {"query": query_data["query"], "results": answers, "source_text_dictionary": source_text_dict}
+        return {"query": query_data["query"], "results": answers, "source_text_dictionary": source_text_dict, 'no_ans_found':doc_rec_set}
 
     def fetch_source_documents(self, detected_answers):
         """
@@ -273,7 +212,7 @@ class QuestionAnswer():
 
         answer_tokens = input["input_ids"][0][start_idx: end_idx + 1]
         answer = self.tokenizer.decode(answer_tokens, skip_special_tokens=True)
-        answer = self.post_process_output(answer)
+        answer = post_process_output(answer)
 
         if answer == "":
             answer = "Sorry, I don't have information on that topic."
@@ -288,16 +227,6 @@ class QuestionAnswer():
         context = self.tokenizer.convert_tokens_to_string(self.tokenizer.convert_ids_to_tokens(input["input_ids"][0]))
 
         return {"confidence_score": confidence_score.item(), "answer": answer, "context": context}
-
-    def post_process_output(self, decoded_text):
-        # Define a list of punctuation marks to consider
-        punctuation_marks = ['.', ',', ';', ':', '!', '?']
-
-        # Use regular expressions to find punctuation tokens with spaces before them
-        pattern = r'(\w)\s?(' + r'|'.join(re.escape(p) for p in punctuation_marks) + r')\s'
-        processed_text = re.sub(pattern, r'\1\2 ', decoded_text)
-
-        return processed_text
 
     def get_candidate_docs(self, query_data):
         documents = self.get_documents_from_mongo()
