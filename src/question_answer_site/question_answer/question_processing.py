@@ -6,61 +6,34 @@ import nltk
 import spacy
 import numpy as np
 from urllib.parse import quote_plus
-from .utils import remove_non_word_chars, clean_text, tokens_to_embeddings, post_process_output
+from .utils import remove_non_word_chars, clean_text, tokens_to_embeddings, post_process_output, correct_spelling
 from .mongodb import MongoDb
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import BertTokenizer, BertForQuestionAnswering, RobertaTokenizer, RobertaForQuestionAnswering
 import time
-from spellchecker import SpellChecker
-
-hyperparams = {
-    "TOKENIZER": "roberta",
-    "input_folder": "space_based_pdfs",
-    "embedding_model_type": "glove",
-    "embedding_model_fname": "roberta_space_based_pdfs_glove_model.bin",
-    "vector_size": 50,
-    "window": 3,
-    "min_count": 3,
-    "sg": 0,
-    "TOKENS_TPYE": "tokens_less_sw",
-    "chunk_size": 400,
-    "chunk_overlap": 0,
-    "max_query_length": 20,
-    "top_N": 7,
-    "TOKENS_EMBEDDINGS": "query_search_less_sw",
-    "DOCUMENT_EMBEDDING": "token_embeddings_less_sw",
-    "DOCUMENT_TOKENS": "tokens_less_sw",
-    "METHOD": "COMBINE_MEAN",
-    "transformer_model_name": "deepset/roberta-base-squad2",
-    "context_size": 500
-}
+from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKENS_EMBEDDINGS, DOCUMENT_EMBEDDING, \
+    DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url, \
+    database_name
 
 
-class QuestionAnswer():
+class QuestionAnswer:
     def __init__(self):
         # Set the Tokenizer for your specific BERT model variant
-        TOKENIZER = hyperparams["TOKENIZER"]
         bert_base_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         roberta_tokenizer = RobertaTokenizer.from_pretrained("deepset/roberta-base-squad2", add_prefix_space=True)
         tokenizers = {'bert': bert_base_tokenizer, 'roberta': roberta_tokenizer}
         self.tokenizer = tokenizers[TOKENIZER]
 
         # Load your trained Word2Vec model
-        embedding_model_fname = hyperparams["embedding_model_fname"]
-        embedding_model_type = hyperparams['embedding_model_type']
-        if embedding_model_type == 'Word2Vec':
+        if EMBEDDING_MODEL_TYPE == 'Word2Vec':
             self.model = Word2Vec.load(
-                os.path.join(os.getcwd(), "question_answer", "embedding_models", embedding_model_fname))
-        elif embedding_model_type.lower() == 'glove':
+                os.path.join(os.getcwd(), "question_answer", "embedding_models", EMBEDDING_MODEL_FNAME))
+        elif EMBEDDING_MODEL_TYPE.lower() == 'glove':
             # Load the custom spaCy model
             self.model = spacy.load(os.path.join(os.getcwd(), "question_answer", "embedding_models",
-                                                 embedding_model_fname.split(".bin")[0]))
+                                                 EMBEDDING_MODEL_FNAME.split(".bin")[0]))
 
-        # Specify the tokens and embeddings for the query
-        TOKENS_EMBEDDINGS = hyperparams['TOKENS_EMBEDDINGS']
         # Specify Candidate token embeddings option
-        self.DOCUMENT_EMBEDDING = hyperparams['DOCUMENT_EMBEDDING']
-        self.DOCUMENT_TOKENS = hyperparams['DOCUMENT_TOKENS']
         if TOKENS_EMBEDDINGS == "query":
             self.TOKENS = "tokenized_query"
             self.EMBEDDINGS = "query_embedding"
@@ -71,18 +44,7 @@ class QuestionAnswer():
             self.TOKENS = "tokenized_query_search_less_sw"
             self.EMBEDDINGS = "query_embedding_search_less_sw"
 
-        self.METHOD = hyperparams['METHOD']
-        self.top_N = hyperparams['top_N']
-
-        self.model_name = hyperparams["transformer_model_name"]
-
-        self.context_size = hyperparams["context_size"]
-
         # Set mongoDb information
-        self.username = "new_user_1"
-        self.password = "password33566"
-        self.cluster_url = "cluster0"
-        self.database_name = "question_answer"
         self.collection_name = "parsed_documents"
 
     def answer_question(self, query):
@@ -96,7 +58,7 @@ class QuestionAnswer():
 
         end_time = time.time()
         elapsed_time = end_time - start_time
-        print(f"Time taken to find top {self.top_N} documents: {elapsed_time} seconds")
+        print(f"Time taken to find top {TOP_N} documents: {elapsed_time} seconds")
 
         start_time = time.time()
         # Get answer with possible answers (list of dictionaries {confidence: , doc:{} })
@@ -106,7 +68,7 @@ class QuestionAnswer():
         print(f"Time taken to get the answers: {elapsed_time} seconds")
 
         # Fetch the source document text
-        source_text_dict, doc_rec_list = None, None
+        source_text_dict, doc_rec_set = None, None
         start_time = time.time()
         if answers:
             source_text_dict = self.fetch_source_documents(answers)
@@ -130,12 +92,12 @@ class QuestionAnswer():
             unique_documents.add(ans_dict['document'])
 
         # Escape the username and password
-        escaped_username = quote_plus(self.username)
-        escaped_password = quote_plus(self.password)
+        escaped_username = quote_plus(username)
+        escaped_password = quote_plus(password)
 
         # use MongoDb class to connect to database instance and get the documents
-        mongo_db = MongoDb(escaped_username, escaped_password, self.cluster_url,
-                           self.database_name, "extracted_text")
+        mongo_db = MongoDb(escaped_username, escaped_password, cluster_url,
+                           database_name, "extracted_text")
 
         source_text_dict = dict()
         if mongo_db.connect():
@@ -147,14 +109,14 @@ class QuestionAnswer():
 
     def get_answer(self, query_data, candidate_documents):
         # BERT or ROBERTA model?
-        if self.model_name.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
+        if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
             # Load the pre-trained BERT model and tokenizer
-            tokenizer = BertTokenizer.from_pretrained(self.model_name)
-            model = BertForQuestionAnswering.from_pretrained(self.model_name)
+            tokenizer = BertTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME)
+            model = BertForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
         else:
             # Load the pre-trained RoBERTa model and tokenizer
-            tokenizer = RobertaTokenizer.from_pretrained(self.model_name, add_prefix_space=True)
-            model = RobertaForQuestionAnswering.from_pretrained(self.model_name)
+            tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_space=True)
+            model = RobertaForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
 
         query_tokens = query_data["tokenized_query"]
         # Concatenate tokens from all candidate chunks
@@ -183,7 +145,7 @@ class QuestionAnswer():
                                                padding="max_length", truncation=True)
 
                 # Roberta Model does not have token_type_ids as an input argument
-                if self.model_name.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
+                if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
                     outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
                                     token_type_ids=inputs["token_type_ids"])
                 else:
@@ -246,23 +208,23 @@ class QuestionAnswer():
         similarity_scores = []
 
         for doc in documents_list:
-            chunk_embeddings = np.array(doc[self.DOCUMENT_EMBEDDING])
-            chunk_tokens = np.array(doc[self.DOCUMENT_TOKENS])
+            chunk_embeddings = np.array(doc[DOCUMENT_EMBEDDING])
+            chunk_tokens = np.array(doc[DOCUMENT_TOKENS])
 
             # remove the paddings and unknown tokens from the query
             chunk_embeddings = np.array(
                 [emb for emb, token in zip(chunk_embeddings, chunk_tokens) if token not in ['[PAD]', '[UNK]']])
 
             # Calculate cosine similarity between query_embedding and chunk_embeddings METHOD = 'MEAN_MAX'
-            if self.METHOD == 'MEAN_MAX':
+            if METHOD == 'MEAN_MAX':
                 similarity = cosine_similarity(query_embedding, chunk_embeddings)
                 similarity = np.mean(np.max(similarity, axis=1))
 
-            elif self.METHOD == 'MEAN_MEAN':
+            elif METHOD == 'MEAN_MEAN':
                 similarity = cosine_similarity(query_embedding, chunk_embeddings)
                 similarity = np.mean(similarity)
 
-            # if self.METHOD == 'COMBINE_MEAN':
+            # if METHOD == 'COMBINE_MEAN':
             else:
                 similarity = cosine_similarity(np.mean(query_embedding, axis=0).reshape(1, -1),
                                                np.mean(chunk_embeddings, axis=0).reshape(1, -1))
@@ -274,33 +236,30 @@ class QuestionAnswer():
         # Sort the similarity_scores in descending order based on the similarity score
         if similarity_scores:
             similarity_scores.sort(key=lambda x: x[0], reverse=True)
-            # for confidence, parsed_doc_chunk_dict in similarity_scores[:self.top_N]:
+            # for confidence, parsed_doc_chunk_dict in similarity_scores[:TOP_N]:
             #     print(parsed_doc_chunk_dict['counter'])
             #     print(self.tokenizer.convert_tokens_to_string(parsed_doc_chunk_dict['tokens']))
             #     print(parsed_doc_chunk_dict['Document'])
             #     print(confidence)
             #     print()
-            return similarity_scores[:self.top_N]
+            return similarity_scores[:TOP_N]
         return similarity_scores
 
     def get_documents_from_mongo(self):
         # Escape the username and password
-        escaped_username = quote_plus(self.username)
-        escaped_password = quote_plus(self.password)
+        escaped_username = quote_plus(username)
+        escaped_password = quote_plus(password)
 
         # use MongoDb class to connect to database instance and get the documents
-        mongo_db = MongoDb(escaped_username, escaped_password, self.cluster_url,
-                           self.database_name, self.collection_name)
+        mongo_db = MongoDb(escaped_username, escaped_password, cluster_url,
+                           database_name, self.collection_name)
 
         if mongo_db.connect():
-            # cursor = mongo_db.iterate_documents()
-            # documents = list(cursor)
             documents = [document for document in mongo_db.iterate_documents()]
             print(f"Total documents: {mongo_db.count_documents()}")
             mongo_db.disconnect()
             return documents
-        else:
-            return []
+        return []
 
     def process_query(self, user_query):
         user_query = user_query.lower()
@@ -327,11 +286,11 @@ class QuestionAnswer():
                                               token not in nltk_stop_words]
 
         # Pad or truncate the query to a fixed length of 20 tokens (BERT input)
-        max_query_length = hyperparams["max_query_length"]
-        if len(tokenized_query) > max_query_length:
-            tokenized_query = tokenized_query[:max_query_length]
+
+        if len(tokenized_query) > MAX_QUERY_LENGTH:
+            tokenized_query = tokenized_query[:MAX_QUERY_LENGTH]
         else:
-            padding_length = max_query_length - len(tokenized_query)
+            padding_length = MAX_QUERY_LENGTH - len(tokenized_query)
             tokenized_query = tokenized_query + [self.tokenizer.pad_token] * padding_length
 
         # Convert the tokenized query to input IDs and attention mask
@@ -355,22 +314,15 @@ class QuestionAnswer():
             "tokenized_query": tokenized_query,
             "tokenized_query_search": tokenized_query_for_search,
             "tokenized_query_search_less_sw": tokenized_query_for_search_less_sw,
-            "query_embedding": query_embeddings.tolist(),  # Just used for the candidate search
-            "query_embedding_search": query_embeddings_search.tolist(),  # Just used for the candidate search, cleaned
-            "query_embedding_search_less_sw": query_embeddings_less_sw.tolist()
+            "query_embedding": query_embeddings, #.tolist(),  # Just used for the candidate search
+            "query_embedding_search": query_embeddings_search, #.tolist(),  # Just used for the candidate search, cleaned
+            "query_embedding_search_less_sw": query_embeddings_less_sw # .tolist()
             # Just used for the candidate search, cleaned more
         }
         # return json.dumps(query_data['query'], indent=2)
         return query_data
 
     def spell_check(self, user_query):
-        spell = SpellChecker()
-
-        def correct_spelling(word):
-            # Your spelling correction logic
-            corrected_word = spell.correction(word)
-            return corrected_word if corrected_word else word  # Replace this with your actual correction logic
-
         tokenized_query = self.tokenizer.tokenize(user_query)
 
         # Group tokens into words

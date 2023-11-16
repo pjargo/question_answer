@@ -59,15 +59,34 @@
             background-color: yellow;
             font-weight: bold;
         }
+        #addFileBtn {
+            padding: 10px 20px;
+            background-color: #FF4500; /* Red-Orange color */
+            color: white;
+            border: 1px solid #FF4500;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-left: 10px; /* Add some space to the left of the button */
+        }
     </style>
 </head>
 <body>
     <h1>Project West Wing Search</h1>
-    <form method="post" action="{% url 'search_view' %}">
+    <form method="post" action="{% url 'search_view' %}" enctype="multipart/form-data" id="myForm">
         {% csrf_token %}
         <input type="text" name="query" placeholder="Search Database...">
         <button type="submit">Search</button>
+        <input type="file" name="file" id="fileInput" style="display: none;">
+        <input type="hidden" name="action_type" id="actionType" value="">
+        <button type="button" id="addFileBtn" onclick="document.getElementById('actionType').value='file'; document.getElementById('fileInput').click();">+ ADD FILE</button>
     </form>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', function() {
+            document.getElementById('myForm').submit();
+        });
+    </script>
+
 
     <!-- Display query text -->
     {% if query_text %}

@@ -1,8 +1,6 @@
 from langdetect import detect_langs
-import gensim
 import fitz
 import hashlib
-import spacy
 import nltk
 from nltk.corpus import wordnet
 import os
@@ -12,26 +10,23 @@ import re
 import string
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
-import unicodedata
-
+from .mongodb import MongoDb
+from .utils import remove_non_text_elements, clean_text, remove_non_word_chars, deal_with_line_breaks_and_hyphenations, \
+    tokens_to_embeddings
+from urllib.parse import quote_plus
+import json
 from gibberish_detector import detector
 from gibberish_detector import trainer
 import urllib.request as req
+from transformers import BertTokenizer
+
+bert_base_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 target_url = 'https://raw.githubusercontent.com/rrenaud/Gibberish-Detector/master/big.txt'
 file = req.urlopen(target_url)
 data = ' '.join([line.decode('utf-8') for line in file])
 Detector = detector.Detector(
     trainer.train_on_content(data, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'), threshold=4.0)
-
-from transformers import BertTokenizer
-
-bert_base_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-from .mongodb import MongoDb
-from .utils import remove_non_text_elements, clean_text, remove_non_word_chars, deal_with_line_breaks_and_hyphenations, \
-    tokens_to_embeddings
-from urllib.parse import quote_plus
-import json
 
 
 def get_sha256(content):
@@ -70,6 +65,7 @@ def get_text(filepath):
     full_text = ''
     for page in doc:
         full_text += page.get_text('text')
+    doc.close()
 
     try:
         langs = detect_langs(full_text)
@@ -80,72 +76,52 @@ def get_text(filepath):
     return full_text, langs
 
 
-def get_wordnet_pos(word):
-    """Map POS tag to first character lemmatize() accepts
+def parse_pdf(directory, embedding_layer_model=None,
+              tokenizer=bert_base_tokenizer, chunk_size=100, chunk_overlap=0, additional_stopwords=[]):
+    # Directory or file
+    try:
+        # Will cause exception if directory is a single file
+        all_docx = os.listdir(directory)
+    except NotADirectoryError:
+        all_docx = [os.path.basename(directory)]
+        directory = os.path.dirname(directory)
 
-    Parameter
-    ---------
-    word (str) - word to find POS
+    # Get a list of dictionaries containing all the desired information, one for each pdf
+    docs = []
+    for filename in all_docx:
+        if filename.endswith('.pdf'):
+            # Get text and langs
+            filepath = os.path.join(directory, filename)
+            print(filepath, filename)
+            text, langs = get_text(filepath)
 
-    Returns
-    -------
-    str - the POS tag
-    """
-    tag = nltk.pos_tag([word])[0][1][0].upper()
-    tag_dict = {"J": wordnet.ADJ,
-                "N": wordnet.NOUN,
-                "V": wordnet.VERB,
-                "R": wordnet.ADV}
+            # put text in dictionary
+            pdf_dict = text_to_dict(text, langs)
+            pdf_dict['Document'], pdf_dict['Path'] = filename, filepath
+            if pdf_dict == {}:
+                continue
 
-    return tag_dict.get(tag, wordnet.NOUN)
+            docs.append(pdf_dict)
 
-
-def get_all_counter_sha():
-    username = "new_user_1"
-    password = "password33566"
-    # Escape the username and password
-    escaped_username = quote_plus(username)
-    escaped_password = quote_plus(password)
-
-    cluster_url = "cluster0"
-    database_name = "question_answer"
-
-    collection_name = "parsed_documents"
-    # collection_name = "extracted_text"
-
-    mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name, collection_name)
-    if mongodb.connect():
-        cursor = mongodb.get_collection().find({}, {"counter": 1, "sha_256": 1, "_id": 0})
-
-    return list(cursor)
-
-
-def parse_pdf_to_chunks(directory, embedding_layer_model=None,
-                        tokenizer=bert_base_tokenizer, chunk_size=100, chunk_overlap=0, additional_stopwords=[]):
-    """
-    Parses and cleans and stores jsons of a directory of pdfs by extracting from each: document name, abstract, normalized text, original text, normalized abstract, path, sha256 hash, language, language probability, and date (if arxiv document authors, title, and url as well).
-
-    Parameters
-    ----------
-    directory (str) - directory that contains the pdf documents or a filepath to a single PDF file
-    storage_dir (str, optional) - the directory that the jsons of parsed documents will be stored
-    stem (bool, optional) - True means to stem the words and False is to leave as is (default = False)
-    abstract (bool, optional) - True means to normalize the abstract (default = False)
-    chunk_overlap (int, optional) -  chunking the documents overlap by this many tokens(default = 0)
-    tokenizer (, optional) - model to tokenize text
-
-    """
-
-    pdf_df = pdfs_to_df(directory)
+    # Put list of dictionaries into dataframe
+    pdfs_df = pd.DataFrame(docs)
+    print('processing text...')
+    pdfs_df = cleanup(pdfs_df, col='Text', replace_math=False, replace_numbers=False,
+                      check_pos=False, remove_meta_data=False, remove_punct=False,
+                      add_acronym_periods=False, lemmatize=False, stem=False,
+                      remove_non_alpha=False, remove_SW=False, remove_gibberish=True,
+                      remove_non_text=True, remove_spec_chars=True, remove_line_breaks=True,
+                      remove_unicode=True)
 
     # Tokenize the dataframe of extracted and cleaned text
-    pdf_df = tokenize_df_of_texts(pdf_df, tokenizer=tokenizer, REMOVE_SW_COL=False, additional_stopwords=[])
+    pdfs_df = tokenize_df_of_texts(pdfs_df, tokenizer=tokenizer, REMOVE_SW_COL=False, additional_stopwords=[])
 
     # Chunk the Tokenized dataframe
-    parsed_list = chunk_df_of_tokens(pdf_df, chunk_size=chunk_size, embedding_model=embedding_layer_model,
+    parsed_list = chunk_df_of_tokens(pdfs_df, chunk_size=chunk_size, embedding_model=embedding_layer_model,
                                      overlap=chunk_overlap, additional_stopwords=additional_stopwords,
                                      tokenizer=tokenizer)
 
+    # Don't add document if it already exists, Add counter
     max_cnter = 0  # Get the largest value in the storage directory if json files are already in there
     sha_set = set()
     mongo_docs = get_all_counter_sha()
@@ -166,111 +142,18 @@ def parse_pdf_to_chunks(directory, embedding_layer_model=None,
     return chunck_dict_list
 
 
-def parsed_pdf_to_json(directory, storage_dir='./parsed_cleaned_pdfs', embedding_layer_model=None,
-                       tokenizer=bert_base_tokenizer, chunk_size=100, chunk_overlap=0, additional_stopwords=[]):
-    '''
-    Parses and cleans and stores jsons of a directory of pdfs by extracting from each: document name, abstract, normalized text, original text, normalized abstract, path, sha256 hash, language, language probability, and date (if arxiv document authors, title, and url as well).
-
-    Parameters
-    ----------
-    directory (str) - directory that contains the pdf documents or a filepath to a single PDF file
-    storage_dir (str, optional) - the directory that the jsons of parsed documents will be stored
-    stem (bool, optional) - True means to stem the words and False is to leave as is (default = False)
-    abstract (bool, optional) - True means to normalize the abstract (default = False)
-    chunk_overlap (int, optional) -  chunking the documents overlap by this many tokens(default = 0)
-    tokenizer (, optional) - model to tokenize text
-
-    '''
-
-    if not os.path.isdir(storage_dir):  # Make output directory if not exist
-        os.mkdir(storage_dir)
-
-    pdf_df = pdfs_to_df(directory)
-
-    # Tokenize the dataframe of extracted and cleaned text
-    pdf_df = tokenize_df_of_texts(pdf_df, tokenizer=tokenizer, REMOVE_SW_COL=False, additional_stopwords=[])
-
-    # Chunk the Tokenized dataframe
-    parsed_list = chunk_df_of_tokens(pdf_df, chunk_size=chunk_size, embedding_model=embedding_layer_model,
-                                     overlap=chunk_overlap, additional_stopwords=additional_stopwords,
-                                     tokenizer=tokenizer)
-
-    doc_offset = 0  # Get the largest value in the storage directory if json files are already in there
-    if os.listdir(storage_dir):
-        for doc in os.listdir(storage_dir):
-            try:
-                temp = int(doc.split(".")[0])
-                if temp > doc_offset:
-                    doc_offset = temp
-            except ValueError:
-                continue
-
-    parsed_dict = {i + doc_offset: doc for i, doc in enumerate(parsed_list)}
-
-    for fname, doc in parsed_dict.items():
-        with open(os.path.join(storage_dir, str(fname) + '.json'), 'w') as j_file:
-            json.dump(doc, j_file, indent=4)
-
-
-def pdfs_to_df(directory):
-    """
-    Parses and cleans a directory of pdfs by extracting from each: document name, abstract, normalized text, original text, normalized abstract, path, sha256 hash, language, language probability, and date (if arxiv document authors, title, and url as well).
-
-    Parameters
-    ----------
-    directory (str) - directory that contains the pdf documents
-    chunk_overlap (int, optional) -  chunking the documents overlap by this many tokens(default = 0)
-
-    Returns
-    -------
-    dataframe
-    """
-    try:
-        # Will cause exception if directory is a single file
-        all_docx = os.listdir(directory)
-    except NotADirectoryError:
-        all_docx = [os.path.basename(directory)]
-        directory = os.path.dirname(directory)
-
-    # Get a list of dictionaries containing all the desired information, one for each pdf
-    docs = []
-    for filepath in all_docx:
-        if filepath.endswith('.pdf'):
-            print(os.path.join(directory, filepath))
-            pdf_dict = pdf_to_dict(directory, filepath)
-            if pdf_dict == {}:
-                continue
-            docs.append(pdf_dict)
-
-    # Put each dictionary into a dataframe and clean it
-    df = pd.DataFrame(docs)
-    print('processing text...')
-
-    df = cleanup(df, col='Text', replace_math=False, replace_numbers=False,
-                 check_pos=False, remove_meta_data=False, remove_punct=False,
-                 add_acronym_periods=False, lemmatize=False, stem=False,
-                 remove_non_alpha=False, remove_SW=False, remove_gibberish=True,
-                 remove_non_text=True, remove_spec_chars=True, remove_line_breaks=True,
-                 remove_unicode=True)
-    return df
-
-
-def pdf_to_dict(directory, filename):
+def text_to_dict(text, langs):
     """
     Extracts document name, abstract, original text, path, sha256 hash, language, language probability, and date (if arxiv document authors, title, and url as well).
 
     Parameters
     ----------
-    directory (str) - directory that contains the document
-    filename (str) - the name of the pdf file
+    text (str)
 
     Returns
     -------
     dict - a dictionary with the following keys: Document, Abstract, Text, Abstract_Original, Original_Text, Path, sha_256, laguage, language_probability, Authors, Tilte, url, date
     """
-    filepath = os.path.join(directory, filename)
-    text, langs = get_text(filepath)
-
     if text == '':
         return {}
 
@@ -279,8 +162,8 @@ def pdf_to_dict(directory, filename):
 
     sha256 = get_sha256(text)
 
-    section_dict = {'Document': filename,
-                    'Path': filepath,
+    section_dict = {'Document': '',
+                    'Path': '',
                     'Text': text,
                     'Original_Text': text,
                     'sha_256': sha256,
@@ -371,13 +254,14 @@ def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0, addition
                                                                                                   additional_stopwords=additional_stopwords,
                                                                                                   tokenizer=tokenizer)
 
-        # Pad the sequences less than 100 tokens, don't need to pad the chunked token less stop words. Only for candidate search
+        # Pad the sequences less than 100 tokens, don't need to pad the chunked token less stop words. Only for
+        # candidate search
         padded_tokens = [token_list + ["[PAD]"] * (100 - len(token_list)) for token_list in chunked_tokens]
 
         if embedding_model:
-            embedded_tokens = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False).tolist() for token_list
+            embedded_tokens = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False) for token_list
                                in padded_tokens]
-            embedded_tokens_less_sw = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False).tolist() for
+            embedded_tokens_less_sw = [tokens_to_embeddings(token_list, embedding_model, RANDOM=False) for
                                        token_list in chunked_tokens_less_sw]
         else:
             embedded_tokens = [[] for token_list in padded_tokens]
@@ -458,6 +342,26 @@ def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[
         chunk_text_less_sw.append(current_chunk_text)
 
     return chunked_tokens, chunked_tokens_less_sw, chunk_text, chunk_text_less_sw
+
+
+def get_all_counter_sha():
+    username = "new_user_1"
+    password = "password33566"
+    # Escape the username and password
+    escaped_username = quote_plus(username)
+    escaped_password = quote_plus(password)
+
+    cluster_url = "cluster0"
+    database_name = "question_answer"
+
+    collection_name = "parsed_documents"
+    # collection_name = "extracted_text"
+    cursor = list()
+    mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name, collection_name)
+    if mongodb.connect():
+        cursor = mongodb.get_collection().find({}, {"counter": 1, "sha_256": 1, "_id": 0})
+
+    return list(cursor)
 
 
 def cleanup(df, col='Text', replace_math=False,
@@ -569,3 +473,23 @@ def cleanup(df, col='Text', replace_math=False,
     df[col] = df[col].apply(lambda z: ' '.join([word for word in z.split() if len(word) < 20 and len(word) > 1]))
     print('done cleaning.\n')
     return df
+
+
+def get_wordnet_pos(word):
+    """Map POS tag to first character lemmatize() accepts
+
+    Parameter
+    ---------
+    word (str) - word to find POS
+
+    Returns
+    -------
+    str - the POS tag
+    """
+    tag = nltk.pos_tag([word])[0][1][0].upper()
+    tag_dict = {"J": wordnet.ADJ,
+                "N": wordnet.NOUN,
+                "V": wordnet.VERB,
+                "R": wordnet.ADV}
+
+    return tag_dict.get(tag, wordnet.NOUN)

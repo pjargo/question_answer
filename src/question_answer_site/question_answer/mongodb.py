@@ -1,5 +1,6 @@
 from pymongo.server_api import ServerApi
 from pymongo.mongo_client import MongoClient
+from pymongo import errors
 
 
 class MongoDb:
@@ -52,6 +53,18 @@ class MongoDb:
                 return
             except Exception as e:
                 print(f"Error updating document: {e}")
+        return None
+
+    def bulk_update_documents(self, operations):
+        collection = self.get_collection()
+        if collection is not None:
+            try:
+                result = collection.bulk_write(operations)
+                return result
+            except errors.BulkWriteError as bwe:
+                print(f"Bulk write error: {bwe.details}")
+            except Exception as e:
+                print(f"Error updating documents: {e}")
         return None
 
     def count_documents(self):

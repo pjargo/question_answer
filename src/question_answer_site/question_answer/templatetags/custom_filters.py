@@ -26,7 +26,6 @@ def highlight_answer(context, answer_n_confidence):
                 highlighted_context,
                 flags=re.IGNORECASE  # Optional: Case-insensitive matching
             )
-
     return highlighted_context
 
 

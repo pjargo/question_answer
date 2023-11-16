@@ -14,10 +14,14 @@ TOP_N = 10
 TOKENS_EMBEDDINGS = "query_search_less_sw"
 DOCUMENT_EMBEDDING = "token_embeddings_less_sw"
 DOCUMENT_TOKENS = "tokens_less_sw"
-METHOD = "COMBINE_MEAN"
+METHOD = 'MEAN_MAX'
 TRANSFORMER_MODEL_NAME = "deepset/roberta-base-squad2"
 CONTEXT_SIZE = 500
 
+username = "new_user_1"
+password = "password33566"
+cluster_url = "cluster0"
+database_name = "question_answer"
 
 
 special_characters = [

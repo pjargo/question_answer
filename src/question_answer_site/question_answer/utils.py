@@ -6,6 +6,7 @@ import numpy as np
 from gibberish_detector import detector
 from gibberish_detector import trainer
 import urllib.request as req
+from spellchecker import SpellChecker
 from transformers import BertTokenizer
 bert_base_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
@@ -25,6 +26,13 @@ def post_process_output(decoded_text):
     processed_text = re.sub(pattern, r'\1\2 ', decoded_text)
 
     return processed_text
+
+
+def correct_spelling(word):
+    spell = SpellChecker()
+    # Your spelling correction logic
+    corrected_word = spell.correction(word)
+    return corrected_word if corrected_word else word
 
 
 def tokens_to_embeddings(tokens_list, model, RANDOM=True):
@@ -66,7 +74,7 @@ def tokens_to_embeddings(tokens_list, model, RANDOM=True):
                     random_embedding = np.random.rand(model.vocab.vectors_length).tolist()
                     query_embeddings.append(random_embedding)
                 else:
-                    zero_embedding = np.zeros(model.vocab.vectors_length)
+                    zero_embedding = np.zeros(model.vocab.vectors_length).tolist()
                     query_embeddings.append(zero_embedding)
     else:
         raise ValueError("Unsupported model type. Please provide a Gensim Word2Vec model or spaCy custom model.")
