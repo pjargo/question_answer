@@ -1,8 +1,6 @@
-import spacy
-from django.http import HttpResponse
-from django.shortcuts import render
 from .question_processing import QuestionAnswer
 from django.utils.html import escape
+from django.http import JsonResponse
 import os
 import copy
 import subprocess
@@ -251,6 +249,13 @@ def search_view(request):
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Time taken to update mongodb: {elapsed_time} seconds")
+
+            return render(request, 'search/search.html', {
+                'query_text': query,
+                'highlighted_documents': highlighted_documents_list,
+                'documents_if_no_answer': doc_rec_set,
+                'status': "complete"
+            })
 
         else:
             query = request.POST.get('query', '')

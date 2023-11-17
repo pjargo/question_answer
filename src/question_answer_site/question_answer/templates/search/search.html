@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <title>Search Page</title>
+    <!-- Bootstrap CSS -->
+    <!-- Need to collect static files using python manage.py collectstatic? -->
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}">
+    <!-- Bootstrap JS (optional, only if you need JavaScript components) -->
+    <script src="{% static 'js/bootstrap.min.js' %}"></script>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -12,6 +18,7 @@
         }
 
         h1 {
+            margin-top: 40px;
             text-align: center;
             color: #1a0dab;
         }
@@ -68,6 +75,19 @@
             cursor: pointer;
             margin-left: 10px; /* Add some space to the left of the button */
         }
+        .notification {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px;
+            background-color: #4CAF50; /* Green */
+            color: white;
+            text-align: center;
+            border-radius: 5px;
+            opacity: 1;
+            transition: opacity 1s ease-in-out;
+        }
     </style>
 </head>
 <body>
@@ -81,8 +101,60 @@
         <button type="button" id="addFileBtn" onclick="document.getElementById('actionType').value='file'; document.getElementById('fileInput').click();">+ ADD FILE</button>
     </form>
 
+    <div id="loadingIndicator" style="display: none;">Processing...</div>
+    <div id="doneNotification" style="display: none;">Processing complete!</div>
+    <!-- Add this div for the loading popup -->
+    <div id="loadingPopup" style="display: none;">
+        <p style="text-align: center;">Processing...</p>
+        <!-- Use a loading spinner -->
+        <div style="text-align: center;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+        </div>
+    </div>
+    <!-- Add this div for displaying the processing status -->
+    <div id="statusDiv"></div>
     <script>
+        console.log("Current directory location:", window.location.href);
+        function showDoneNotification() {
+            // Hide the loading indicator
+            document.getElementById('loadingPopup').style.display = 'none';
+
+            // Create a notification element
+            var notification = document.createElement('div');
+            notification.innerHTML = 'Processing complete!';
+            notification.className = 'notification';
+
+            // Append the notification to the body
+            document.body.appendChild(notification);
+
+            // After a delay, remove the notification
+            setTimeout(function () {
+                notification.style.opacity = '0';
+                setTimeout(function () {
+                    notification.remove();
+                }, 1000);
+            }, 2000);
+        }
+
+
+        // Use an AJAX request for file processing
+        var xhr = new XMLHttpRequest();
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                if (xhr.status === 200) {
+                    var responseData = JSON.parse(xhr.responseText);
+                    if (responseData.status === 'complete') {
+                        showDoneNotification();
+                    }
+                }
+            }
+        };
+
         document.getElementById('fileInput').addEventListener('change', function() {
+            // Show the loading indicator
+            document.getElementById('loadingPopup').style.display = 'block';
             document.getElementById('myForm').submit();
         });
     </script>
