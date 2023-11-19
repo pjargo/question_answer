@@ -13,8 +13,8 @@ from nltk.stem import WordNetLemmatizer
 from .mongodb import MongoDb
 from .utils import remove_non_text_elements, clean_text, remove_non_word_chars, deal_with_line_breaks_and_hyphenations, \
     tokens_to_embeddings
+from .config import username, password, cluster_url, database_name
 from urllib.parse import quote_plus
-import json
 from gibberish_detector import detector
 from gibberish_detector import trainer
 import urllib.request as req
@@ -27,6 +27,52 @@ file = req.urlopen(target_url)
 data = ' '.join([line.decode('utf-8') for line in file])
 Detector = detector.Detector(
     trainer.train_on_content(data, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'), threshold=4.0)
+
+# Escape the username and password
+escaped_username = quote_plus(username)
+escaped_password = quote_plus(password)
+
+
+def update_collection(collection: str, parsed_data):
+    """
+    Update Mongodb collection with data extracted from added file
+    :param collection: (str) mongodb colleciton name. either "extracted_text" or "parsed_documents"
+    :param parsed_data: ([dict]) data from new document
+    :return:
+    """
+    mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name,
+                      collection_name=collection)
+    if mongodb.connect():
+        print(f"Updating the '{collection}' collection")
+        doc_cnt = mongodb.count_documents()
+        print(f"{doc_cnt} documents in '{collection}' before adding")
+
+        # Insert the JSON data as a document into the collection
+        document_tracker = set()
+        never_need = ['language', 'language_probability', 'Path', 'token_embeddings', 'chunk_text',
+                      'chunk_text_less_sw']
+        parsed_need = ['counter', 'token_embeddings_less_sw', 'tokens_less_sw', 'tokens']
+        extracted_need = ['Original_Text', 'Text']
+        for data_obj in parsed_data:
+            # Update extracted_text collection
+            if data_obj['Document'] not in document_tracker and collection == "extracted_text":
+                for key in never_need + parsed_need:
+                    data_obj.pop(key)
+
+                document_tracker.add(data_obj['Document'])
+                mongodb.insert_document(data_obj)  # Add the data to the mongo collection
+
+            # Update parsed_documents collection
+            elif collection == "parsed_documents":
+                for key in never_need + extracted_need:
+                    data_obj.pop(key)
+                mongodb.insert_document(data_obj)
+
+        doc_cnt = mongodb.count_documents()
+        print(f"{doc_cnt} documents in '{collection}' after adding")
+
+    mongodb.disconnect()  # Close mongo client
+    return
 
 
 def get_sha256(content):

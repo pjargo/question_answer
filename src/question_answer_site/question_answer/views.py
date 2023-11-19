@@ -1,27 +1,24 @@
 from .question_processing import QuestionAnswer
 from django.utils.html import escape
-from django.http import JsonResponse
 import os
 import copy
-import subprocess
-import csv
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.http import HttpResponse
 from django.shortcuts import render
 from .utils import tokens_to_embeddings
-from .embedding_layer import load_custom_vectors, get_embedding_model, update_mongo_document, update_mongo_documents_bulk
-from .parse_document import parse_pdf
-from .config import special_characters, TOKENS_TYPE, EMBEDDING_MODEL_FNAME, CHUNK_SIZE, CHUNK_OVERLAP, \
-    EMBEDDING_MODEL_TYPE, username, password, cluster_url, database_name, VECTOR_SIZE, WINDOW, MIN_COUNT, SG, \
-    DOCUMENT_EMBEDDING, TRANSFORMER_MODEL_NAME
-from gensim.models import Word2Vec
+from .embedding_layer import update_embedding_model, get_embedding_model, \
+    update_mongo_documents_bulk
+from .parse_document import parse_pdf, update_collection
+from .config import special_characters, TOKENS_TYPE, CHUNK_SIZE, CHUNK_OVERLAP, \
+    username, password, cluster_url, database_name, DOCUMENT_EMBEDDING, TRANSFORMER_MODEL_NAME
 from transformers import RobertaTokenizer
 from .mongodb import MongoDb
 from urllib.parse import quote_plus
 import pandas as pd
 import numpy as np
 import time
+from django.http import JsonResponse
 
 # Set the Tokenizer for your specific BERT model variant
 tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_space=True)
@@ -39,6 +36,7 @@ def index(request):
 def handle_uploaded_file(file):
     # Save the uploaded file temporarily
     file_path = os.path.join(settings.MEDIA_ROOT, file.name)
+    print(f"Temporarily saving file: {file_path}")
     with default_storage.open(file_path, 'wb+') as destination:
         for chunk in file.chunks():
             destination.write(chunk)
@@ -51,17 +49,17 @@ def search_view(request):
     doc_rec_set = {}
 
     if request.method == 'POST':
-        print(request.POST)
-        print(request.FILES)
+        print("POST request: ", request.POST)
+        print("FILES request: ", request.FILES)
         # Check if 'query' is present in the POST data (search action)
         action_type = request.POST.get('action_type', '')
         if action_type == 'file':
+            add_file_start_time = time.time()
             file = request.FILES.get('file')
-            print(file)
-            print(file.name)
             file_path = handle_uploaded_file(file)
 
             # Get the data in a dictionary
+            print("parsing new file into list of dictionaries...")
             parsed_data = parse_pdf(directory=file_path,
                                     embedding_layer_model=get_embedding_model(),
                                     tokenizer=tokenizer,
@@ -73,189 +71,72 @@ def search_view(request):
             # 'language', 'language_probability', 'counter'])
 
             if not parsed_data:
-                return HttpResponse('Documents already added')
-            print(parsed_data[0]['counter'])
-            print(parsed_data[0]['tokens_less_sw'])
+                print("Data already exists")
 
-            # Select only the desired keys for each dictionary
-            selected_keys = ["tokens_less_sw", "counter"]
+                response_data = {'status': 'existing', 'query_text': query,
+                                 'highlighted_documents': highlighted_documents_list,
+                                 'documents_if_no_answer': doc_rec_set}  # Include any additional data you need
+
+                return JsonResponse(response_data)
+
+            # Filtered dictionary list -> dataframe
+            selected_keys = ["tokens_less_sw", "counter"]  # Select only the desired keys for each dictionary
             selected_dicts = [{key: d[key] for key in selected_keys} for d in parsed_data]
-
-            # Convert the list of selected dictionaries to a DataFrame
-            new_doc_df = pd.DataFrame(selected_dicts)
-            print("New data:")
-            print(new_doc_df.columns)
-            print(type(new_doc_df["tokens_less_sw"][0]))
-            print()
+            new_doc_df = pd.DataFrame(selected_dicts)  # Convert to DataFrame
 
             # Set the embedding layer
             # Get the data from Mongo
             # Get tokens and counter values from all documents in the mongodb
 
-            # Create a MongoClient and connect to the server
+            # Put New data in 'extracted_text' collection
+            update_collection(collection="extracted_text", parsed_data=copy.deepcopy(parsed_data))
+
+            # Get existing data in "parsed documents"
             mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name,
                               collection_name="parsed_documents")
             if mongodb.connect():
-                # Get all existing data from 'parsed_documents' collection
                 cursor = mongodb.get_collection().find({}, {TOKENS_TYPE: 1, 'counter': 1, '_id': 0})
+                existing_docs_df = pd.DataFrame(list(cursor))  # Put in dataframe
 
-                # Put in dataframe
-                existing_docs_df = pd.DataFrame(list(cursor))
-                print("Mongo Data:")
-                print(existing_docs_df.columns)
-                print(type(existing_docs_df["tokens_less_sw"][0]))
-                print()
-                # Add new data to 'parsed_documents' collection
-                doc_cnt = mongodb.count_documents()
-                print(f"{doc_cnt} documents in 'parsed_documents' before adding")
+            # Put New data in 'parsed_documents' collection (after retrieving existing data)
+            update_collection(collection="parsed_documents", parsed_data=copy.deepcopy(parsed_data))
 
-                for data_obj in copy.deepcopy(parsed_data):
-                    # 'extracted_text'
-                    data_obj.pop('Original_Text')
-                    data_obj.pop('Text')
-
-                    # -
-                    data_obj.pop('language')
-                    data_obj.pop('language_probability')
-                    data_obj.pop('Path')
-                    data_obj.pop('token_embeddings')
-                    data_obj.pop('chunk_text')
-                    data_obj.pop('chunk_text_less_sw')
-
-                    mongodb.insert_document(data_obj)
-
-                print("Data inserted successfully!")
-
-                doc_cnt = mongodb.count_documents()
-                print(f"{doc_cnt} documents in 'parsed_documents' after adding")
-
-                # Close the MongoDB client when done
-                mongodb.disconnect()
-
-            # Put New data in 'extracted_text' collection
-            # Create a MongoClient and connect to the server
-            mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name, collection_name="extracted_text")
-            if mongodb.connect():
-
-                doc_cnt = mongodb.count_documents()
-                print(f"{doc_cnt} documents in 'extracted_text' before adding")
-
-                document_tracker = set()
-                for data_obj in copy.deepcopy(parsed_data):
-                    # -
-                    data_obj.pop('language')
-                    data_obj.pop('language_probability')
-                    data_obj.pop('Path')
-                    data_obj.pop('token_embeddings')
-                    data_obj.pop('chunk_text')
-                    data_obj.pop('chunk_text_less_sw')
-
-                    # 'parsed_documents'
-                    data_obj.pop('counter')
-                    data_obj.pop('token_embeddings_less_sw')
-                    data_obj.pop('tokens_less_sw')
-                    data_obj.pop('tokens')
-
-                    # Insert the JSON data as a document into the collection
-                    if data_obj['Document'] not in document_tracker:
-                        document_tracker.add(data_obj['Document'])
-                        print(data_obj['Document'])
-                        mongodb.insert_document(data_obj)
-                print("Data inserted successfully!")
-                doc_cnt = mongodb.count_documents()
-                print(f"{doc_cnt} documents in 'extracted_text' after adding")
-
-            # Close the MongoDB client when done
-            mongodb.disconnect()
-
+            # Combine existing data with new data
             combined_df = pd.concat([existing_docs_df, new_doc_df])
-            print("combined data")
-            print(combined_df.columns)
-            # print(combined_df)
-            # print(os.path.join(os.getcwd(), 'tokens.xlsx'))
             combined_df.to_excel(os.path.join(os.getcwd(), 'tokens.xlsx'))
-            # Train Word2Vec model
-            if EMBEDDING_MODEL_TYPE == 'Word2Vec':
-                kwargs = {
-                    'sentences': combined_df[TOKENS_TYPE].to_list(),
-                    'vector_size': VECTOR_SIZE,
-                    'window': WINDOW,
-                    'min_count': MIN_COUNT,
-                    'sg': SG
-                }
 
-                # Train the Word2Vec model
-                model = Word2Vec(**kwargs)
+            # Train embedding model
+            update_embedding_model(df=combined_df)
 
-                # Save the model
-                model.save(os.path.join("..", "models", "word_embeddings", EMBEDDING_MODEL_FNAME))
-
-            elif EMBEDDING_MODEL_TYPE == 'glove':
-                # Specify the file path for the output text file
-                output_file = os.path.join(os.getcwd(), "question_answer", "embedding_models", "glove",
-                                           'training_data.txt')
-
-                # Write the "tokens" column to a text file with each row on a separate line
-                combined_df[TOKENS_TYPE].apply(lambda x: ' '.join(x)).to_csv(output_file, header=False, index=False,
-                                                                             sep='\n',
-                                                                             quoting=csv.QUOTE_NONE)
-
-                os.environ["VECTOR_SIZE"] = str(VECTOR_SIZE)
-                os.environ["WINDOW_SIZE"] = str(WINDOW)
-                os.environ["VOCAB_MIN_COUNT"] = str(MIN_COUNT)
-                # sys.path.append(os.path.join("..", "models", "word_embeddings", "glove"))
-
-                # Train the model
-                demo_path = os.path.join(os.getcwd(), "question_answer", "embedding_models", "glove")
-                os.chdir(demo_path)
-                script_path = os.path.join(demo_path, "demo.sh")
-                try:
-                    # Run the demo.sh script
-                    subprocess.run([script_path], check=True, shell=True)
-                    # For example: subprocess.run([script_path, 'arg1', 'arg2'], check=True, shell=True)
-                except subprocess.CalledProcessError as e:
-                    # Handle errors if the subprocess returns a non-zero exit code
-                    print(f"Error running script: {e}")
-                if os.getcwd().endswith('glove'):
-                    views_path = os.path.join("..", "..", "..")
-                    os.chdir(os.path.join(views_path))
-
-                # Path to your GloVe vectors file
-                vectors_file = os.path.join(os.getcwd(), "question_answer", "embedding_models", "glove", "vectors.txt")
-
-                # Load the custom spaCy model with GloVe vectors
-                custom_nlp = load_custom_vectors(vectors_file)
-
-                # Save the custom spaCy model to a directory
-                custom_nlp.to_disk(os.path.join(os.getcwd(), "question_answer", "embedding_models", EMBEDDING_MODEL_FNAME.split(".bin")[0]))
-
-                print("updated the embedding layer")
-
-            # Update dataframe with token embeddings
-            combined_df[DOCUMENT_EMBEDDING] = combined_df[TOKENS_TYPE].apply(tokens_to_embeddings, args=(get_embedding_model(),))
+            # Update dataframe with token embeddings from updated embedding layer
+            combined_df[DOCUMENT_EMBEDDING] = combined_df[TOKENS_TYPE].apply(tokens_to_embeddings,
+                                                                             args=(get_embedding_model(),))
             combined_df.sort_values(by='counter', inplace=True)
-            print(combined_df.shape)
+
             # Apply the function to update MongoDB for each row in the DataFrame
+            print("Updating the Mongo Database with new word embeddings...")
             # combined_df.apply(update_mongo_document, args=(mongodb,), axis=1)
+            if mongodb.connect():
+                print(f"Updating {mongodb.count_documents()} documents...")
 
-            # Split your DataFrame into chunks for bulk updates
-            start_time = time.time()
+                # Split your DataFrame into chunks for bulk updates
+                start_time = time.time()
 
-            chunk_size = 200  # Adjust this based on your needs
-            for chunk in np.array_split(combined_df, len(combined_df) // chunk_size):
-                print("chunk shape: ", chunk.shape)
-                update_mongo_documents_bulk(chunk, mongodb)
-                print("done chunk")
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            print(f"Time taken to update mongodb: {elapsed_time} seconds")
+                updated_documents_cnt = 0
+                for chunk in np.array_split(combined_df, len(combined_df) // 400):
+                    updated_documents_cnt += chunk.shape[0]
+                    update_mongo_documents_bulk(chunk, mongodb)
+                    print("done chunk")
+                print(f"Updated {updated_documents_cnt} documents")
+                print(f"Time taken to update mongodb: {time.time() - start_time} seconds")
+                mongodb.disconnect()
+            print(f"Time taken to add file: {time.time() - add_file_start_time} seconds")
 
-            return render(request, 'search/search.html', {
-                'query_text': query,
-                'highlighted_documents': highlighted_documents_list,
-                'documents_if_no_answer': doc_rec_set,
-                'status': "complete"
-            })
+            response_data = {'status': 'complete', 'query_text': query,
+                             'highlighted_documents': highlighted_documents_list,
+                             'documents_if_no_answer': doc_rec_set}  # Include any additional data you need
+
+            return JsonResponse(response_data)
 
         else:
             query = request.POST.get('query', '')
