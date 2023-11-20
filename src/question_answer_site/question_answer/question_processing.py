@@ -14,6 +14,7 @@ import time
 from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKENS_EMBEDDINGS, DOCUMENT_EMBEDDING, \
     DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url, \
     database_name
+from concurrent.futures import ThreadPoolExecutor
 
 
 class QuestionAnswer:
@@ -111,12 +112,12 @@ class QuestionAnswer:
         # BERT or ROBERTA model?
         if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
             # Load the pre-trained BERT model and tokenizer
-            tokenizer = BertTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME)
-            model = BertForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
+            self.tokenizer = BertTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME)
+            self.transformer_model = BertForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
         else:
             # Load the pre-trained RoBERTa model and tokenizer
-            tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_space=True)
-            model = RobertaForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
+            self.tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_space=True)
+            self.transformer_model = RobertaForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
 
         query_tokens = query_data["tokenized_query"]
         # Concatenate tokens from all candidate chunks
@@ -128,40 +129,57 @@ class QuestionAnswer:
             # Add a separation token between documents unless they are consecutive numbers, indicating they are not
             # separate chunks
             if prev_doc and int(candidate['counter']) != int(prev_doc['counter']) + 1:
-                candidate_docs_tokens_concatenated.extend([tokenizer.sep_token_id])
+                candidate_docs_tokens_concatenated.extend([self.tokenizer.sep_token_id])
 
             candidate_docs_tokens_concatenated.extend(candidate_docs_tokens)
             prev_doc = candidate
 
         chunks = [(candidate['tokens'], candidate['Document']) for sim_score, candidate in candidate_documents]
-
         candidate_responses_list = list()
         # Process each chunk separately and store logits
         with torch.no_grad():
-            for i, (chunk, doc) in enumerate(chunks):
-                chunk = [str(token) if isinstance(token, int) else token for token in chunk]
+            # Use ThreadPoolExecutor for parallel processing
+            with ThreadPoolExecutor() as executor:
+                # Submit each chunk for processing concurrently
+                futures = [executor.submit(self.get_answer_and_confidence, chunk, doc, query_data) for (chunk, doc) in chunks]
 
-                inputs = tokenizer.encode_plus(query_tokens, chunk, max_length=512, return_tensors="pt",
-                                               padding="max_length", truncation=True)
-
-                # Roberta Model does not have token_type_ids as an input argument
-                if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
-                    outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
-                                    token_type_ids=inputs["token_type_ids"])
-                else:
-                    outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
-
-                answer_confidence_dict = self.get_answer_and_confidence(inputs, outputs, query_data['query'], 0)
-                answer_confidence_dict["document"] = doc
-                if answer_confidence_dict["answer"] == "Sorry, I don't have information on that topic.":
-                    continue
-                candidate_responses_list.append(answer_confidence_dict)
+                # Wait for all tasks to complete
+                candidate_responses_list = [future.result() for future in futures]
+            # for (chunk, doc) in chunks:
+            #     chunk = [str(token) if isinstance(token, int) else token for token in chunk]
+            #     inputs = tokenizer.encode_plus(query_tokens, chunk, max_length=512, return_tensors="pt",
+            #                                    padding="max_length", truncation=True)
+            #
+            #     # Roberta Model does not have token_type_ids as an input argument
+            #     if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
+            #         outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
+            #                         token_type_ids=inputs["token_type_ids"])
+            #     else:
+            #         outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+            #
+            #     answer_confidence_dict = self.get_answer_and_confidence(inputs, outputs, query_data['query'], 0)
+            #     answer_confidence_dict["document"] = doc
+            #     if answer_confidence_dict["answer"] == "Sorry, I don't have information on that topic.":
+            #         continue
+            #     candidate_responses_list.append(answer_confidence_dict)
 
         return candidate_responses_list
 
-    def get_answer_and_confidence(self, input, output, query, confidence_threshold=0):
-        start_logits = output.start_logits
-        end_logits = output.end_logits
+    # def get_answer_and_confidence(self, input, output, query, confidence_threshold=0):
+    def get_answer_and_confidence(self, chunk, document, query):
+        chunk = [str(token) if isinstance(token, int) else token for token in chunk]
+        inputs = self.tokenizer.encode_plus(query["tokenized_query"], chunk, max_length=512, return_tensors="pt",
+                                       padding="max_length", truncation=True)
+
+        # Roberta Model does not have token_type_ids as an input argument
+        if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
+            outputs = self.transformer_model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
+                                             token_type_ids=inputs["token_type_ids"])
+        else:
+            outputs = self.transformer_model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+
+        start_logits = outputs.start_logits
+        end_logits = outputs.end_logits
 
         combined_scores = start_logits.unsqueeze(-1) + end_logits.unsqueeze(1)
 
@@ -172,23 +190,23 @@ class QuestionAnswer:
         start_idx = torch.div(max_combined_score_idx, combined_scores.size(1), rounding_mode='trunc')
         end_idx = max_combined_score_idx - start_idx * combined_scores.size(1)
 
-        answer_tokens = input["input_ids"][0][start_idx: end_idx + 1]
+        answer_tokens = inputs["input_ids"][0][start_idx: end_idx + 1]
         answer = self.tokenizer.decode(answer_tokens, skip_special_tokens=True)
         answer = post_process_output(answer)
 
         if answer == "":
             answer = "Sorry, I don't have information on that topic."
-        if query in answer:  # If roberta return logits are entire context
-            escaped_query = re.escape(query)
+        if query['query'] in answer:  # If roberta return logits are entire context
+            escaped_query = re.escape(query['query'])
             answer = re.sub(escaped_query, "", answer)
 
         start_probs = torch.softmax(start_logits, dim=1)
         end_probs = torch.softmax(end_logits, dim=1)
         confidence_score = start_probs[0, start_idx] * end_probs[0, end_idx]
 
-        context = self.tokenizer.convert_tokens_to_string(self.tokenizer.convert_ids_to_tokens(input["input_ids"][0]))
+        context = self.tokenizer.convert_tokens_to_string(self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0]))
 
-        return {"confidence_score": confidence_score.item(), "answer": answer, "context": context}
+        return {"confidence_score": confidence_score.item(), "answer": answer, "context": context, "document":document}
 
     def get_candidate_docs(self, query_data):
         documents = self.get_documents_from_mongo()
