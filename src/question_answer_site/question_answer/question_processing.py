@@ -17,6 +17,19 @@ from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKE
 from concurrent.futures import ThreadPoolExecutor
 
 
+def timing_decorator(custom_message):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print(f"{custom_message}: {execution_time} seconds.")
+            return result
+        return wrapper
+    return decorator
+
+
 class QuestionAnswer:
     def __init__(self):
         # Set the Tokenizer for your specific BERT model variant
@@ -27,12 +40,22 @@ class QuestionAnswer:
 
         # Load your trained Word2Vec model
         if EMBEDDING_MODEL_TYPE == 'Word2Vec':
-            self.model = Word2Vec.load(
+            self.embedding_model = Word2Vec.load(
                 os.path.join(os.getcwd(), "question_answer", "embedding_models", EMBEDDING_MODEL_FNAME))
         elif EMBEDDING_MODEL_TYPE.lower() == 'glove':
             # Load the custom spaCy model
-            self.model = spacy.load(os.path.join(os.getcwd(), "question_answer", "embedding_models",
+            self.embedding_model = spacy.load(os.path.join(os.getcwd(), "question_answer", "embedding_models",
                                                  EMBEDDING_MODEL_FNAME.split(".bin")[0]))
+
+        # BERT or ROBERTA model?
+        if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
+            # Load the pre-trained BERT model and tokenizer
+            self.tokenizer = BertTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME)
+            self.transformer_model = BertForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
+        else:
+            # Load the pre-trained RoBERTa model and tokenizer
+            self.tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_space=True)
+            self.transformer_model = RobertaForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
 
         # Specify Candidate token embeddings option
         if TOKENS_EMBEDDINGS == "query":
@@ -48,39 +71,27 @@ class QuestionAnswer:
         # Set mongoDb information
         self.collection_name = "parsed_documents"
 
+    @timing_decorator("Total execution time")
     def answer_question(self, query):
         query_data = self.process_query(query)
-
-        start_time = time.time()
 
         # Get the candidate documents, top_n_documents: (similarity_score, document dictionary)
         top_n_documents = self.get_candidate_docs(query_data)
         top_n_documents.sort(key=lambda x: x[1]['counter'])
 
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Time taken to find top {TOP_N} documents: {elapsed_time} seconds")
-
-        start_time = time.time()
         # Get answer with possible answers (list of dictionaries {confidence: , doc:{} })
         answers = self.get_answer(query_data, top_n_documents)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Time taken to get the answers: {elapsed_time} seconds")
 
         # Fetch the source document text
         source_text_dict, doc_rec_set = None, None
-        start_time = time.time()
         if answers:
             source_text_dict = self.fetch_source_documents(answers)
         else:
             doc_rec_set = set([doc_info[1]['Document'] for doc_info in top_n_documents])
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Time taken to get the source text: {elapsed_time} seconds")
 
         return {"query": query_data["query"], "results": answers, "source_text_dictionary": source_text_dict, 'no_ans_found':doc_rec_set}
 
+    @timing_decorator("Execution time to fetch source documents")
     def fetch_source_documents(self, detected_answers):
         """
 
@@ -108,18 +119,8 @@ class QuestionAnswer:
 
         return source_text_dict
 
+    @timing_decorator("Execution time to get answers from transformer")
     def get_answer(self, query_data, candidate_documents):
-        # BERT or ROBERTA model?
-        if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
-            # Load the pre-trained BERT model and tokenizer
-            self.tokenizer = BertTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME)
-            self.transformer_model = BertForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
-        else:
-            # Load the pre-trained RoBERTa model and tokenizer
-            self.tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_space=True)
-            self.transformer_model = RobertaForQuestionAnswering.from_pretrained(TRANSFORMER_MODEL_NAME)
-
-        query_tokens = query_data["tokenized_query"]
         # Concatenate tokens from all candidate chunks
         candidate_docs_tokens_concatenated = []
         prev_doc = None
@@ -135,7 +136,6 @@ class QuestionAnswer:
             prev_doc = candidate
 
         chunks = [(candidate['tokens'], candidate['Document']) for sim_score, candidate in candidate_documents]
-        candidate_responses_list = list()
         # Process each chunk separately and store logits
         with torch.no_grad():
             # Use ThreadPoolExecutor for parallel processing
@@ -144,28 +144,10 @@ class QuestionAnswer:
                 futures = [executor.submit(self.get_answer_and_confidence, chunk, doc, query_data) for (chunk, doc) in chunks]
 
                 # Wait for all tasks to complete
-                candidate_responses_list = [future.result() for future in futures]
-            # for (chunk, doc) in chunks:
-            #     chunk = [str(token) if isinstance(token, int) else token for token in chunk]
-            #     inputs = tokenizer.encode_plus(query_tokens, chunk, max_length=512, return_tensors="pt",
-            #                                    padding="max_length", truncation=True)
-            #
-            #     # Roberta Model does not have token_type_ids as an input argument
-            #     if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
-            #         outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
-            #                         token_type_ids=inputs["token_type_ids"])
-            #     else:
-            #         outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
-            #
-            #     answer_confidence_dict = self.get_answer_and_confidence(inputs, outputs, query_data['query'], 0)
-            #     answer_confidence_dict["document"] = doc
-            #     if answer_confidence_dict["answer"] == "Sorry, I don't have information on that topic.":
-            #         continue
-            #     candidate_responses_list.append(answer_confidence_dict)
+                candidate_responses_list = [future.result() for future in futures if "Sorry, I don't have information on that topic." not in future.result().get("answer", "")]
 
         return candidate_responses_list
 
-    # def get_answer_and_confidence(self, input, output, query, confidence_threshold=0):
     def get_answer_and_confidence(self, chunk, document, query):
         chunk = [str(token) if isinstance(token, int) else token for token in chunk]
         inputs = self.tokenizer.encode_plus(query["tokenized_query"], chunk, max_length=512, return_tensors="pt",
@@ -208,6 +190,7 @@ class QuestionAnswer:
 
         return {"confidence_score": confidence_score.item(), "answer": answer, "context": context, "document":document}
 
+    @timing_decorator(f"Execution time to retrieve top {TOP_N} candidate documents")
     def get_candidate_docs(self, query_data):
         documents = self.get_documents_from_mongo()
         top_n_documents = self.get_topn_docs(documents_list=documents,
@@ -279,6 +262,7 @@ class QuestionAnswer:
             return documents
         return []
 
+    @timing_decorator("Execution time to process query")
     def process_query(self, user_query):
         user_query = user_query.lower()
 
@@ -320,9 +304,9 @@ class QuestionAnswer:
         attention_mask_query = torch.tensor(attention_mask_query).unsqueeze(0)  # Add batch dimension
 
         # Get the query embeddings for the candidate document search
-        query_embeddings = tokens_to_embeddings(tokenized_query, self.model, RANDOM=False)
-        query_embeddings_search = tokens_to_embeddings(tokenized_query_for_search, self.model, RANDOM=False)
-        query_embeddings_less_sw = tokens_to_embeddings(tokenized_query_for_search_less_sw, self.model, RANDOM=False)
+        query_embeddings = tokens_to_embeddings(tokenized_query, self.embedding_model, RANDOM=False)
+        query_embeddings_search = tokens_to_embeddings(tokenized_query_for_search, self.embedding_model, RANDOM=False)
+        query_embeddings_less_sw = tokens_to_embeddings(tokenized_query_for_search_less_sw, self.embedding_model, RANDOM=False)
 
         query_data = {
             "query": user_query,
@@ -365,7 +349,7 @@ class QuestionAnswer:
             # Split punctuation and hyphens from the word
             base_word = "".join(char for char in word if char.isalnum() or char in ["'", "-"])
             if any(list(map(lambda x: not any(x),
-                            tokens_to_embeddings(self.tokenizer.tokenize(base_word), self.model, RANDOM=False)))):
+                            tokens_to_embeddings(self.tokenizer.tokenize(base_word), self.embedding_model, RANDOM=False)))):
                 # Add the original word to the misspelled_words list
                 misspelled_words.append(word)
         # Correct the spelling of misspelled words
