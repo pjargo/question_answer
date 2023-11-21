@@ -10,11 +10,11 @@ TOKENS_TYPE = "tokens_less_sw"
 CHUNK_SIZE = 450
 CHUNK_OVERLAP = 0
 MAX_QUERY_LENGTH = 20
-TOP_N = 10
+TOP_N = 20
 TOKENS_EMBEDDINGS = "query_search_less_sw"
 DOCUMENT_EMBEDDING = "token_embeddings_less_sw"
 DOCUMENT_TOKENS = "tokens_less_sw"
-METHOD = 'MEAN_MAX'
+METHOD = "BOTH"  # 'MEAN_MAX', 'COMBINE_MEAN'
 TRANSFORMER_MODEL_NAME = "deepset/roberta-base-squad2"
 CONTEXT_SIZE = 500
 

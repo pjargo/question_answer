@@ -35,6 +35,19 @@ class MongoDb:
         else:
             return None
 
+    def get_documents(self, query, inclusion=None):
+        collection = self.get_collection()
+        if collection is not None:
+            try:
+                if inclusion:
+                    result = collection.find(query, inclusion)
+                else:
+                    result = collection.find(query)
+                return result
+            except Exception as e:
+                print(f"Error inserting document: {e}")
+        return None
+
     def insert_document(self, document):
         collection = self.get_collection()
         if collection is not None:

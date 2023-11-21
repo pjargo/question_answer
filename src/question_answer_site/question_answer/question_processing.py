@@ -11,9 +11,8 @@ from .mongodb import MongoDb
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import BertTokenizer, BertForQuestionAnswering, RobertaTokenizer, RobertaForQuestionAnswering
 import time
-from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKENS_EMBEDDINGS, DOCUMENT_EMBEDDING, \
-    DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url, \
-    database_name
+from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKENS_EMBEDDINGS, database_name, \
+    DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -45,7 +44,7 @@ class QuestionAnswer:
         elif EMBEDDING_MODEL_TYPE.lower() == 'glove':
             # Load the custom spaCy model
             self.embedding_model = spacy.load(os.path.join(os.getcwd(), "question_answer", "embedding_models",
-                                                 EMBEDDING_MODEL_FNAME.split(".bin")[0]))
+                                              EMBEDDING_MODEL_FNAME.split(".bin")[0]))
 
         # BERT or ROBERTA model?
         if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
@@ -59,20 +58,22 @@ class QuestionAnswer:
 
         # Specify Candidate token embeddings option
         if TOKENS_EMBEDDINGS == "query":
-            self.TOKENS = "tokenized_query"
-            self.EMBEDDINGS = "query_embedding"
+            self.TOKENS, self.EMBEDDINGS = "tokenized_query", "query_embedding"
         elif TOKENS_EMBEDDINGS == "query_search":
-            self.TOKENS = "tokenized_query_search"
-            self.EMBEDDINGS = "query_embedding_search"
+            self.TOKENS, self.EMBEDDINGS = "tokenized_query_search", "query_embedding_search"
         else:
-            self.TOKENS = "tokenized_query_search_less_sw"
-            self.EMBEDDINGS = "query_embedding_search_less_sw"
+            self.TOKENS, self.EMBEDDINGS = "tokenized_query_search_less_sw", "query_embedding_search_less_sw"
 
         # Set mongoDb information
         self.collection_name = "parsed_documents"
 
     @timing_decorator("Total execution time")
-    def answer_question(self, query):
+    def answer_question(self, query: str):
+        """
+        Find answer in corpus of documents
+        :param query: (str) User input question
+        :return: JSON containing answer, source data and recommended documents if no answer found
+        """
         query_data = self.process_query(query)
 
         # Get the candidate documents, top_n_documents: (similarity_score, document dictionary)
@@ -80,7 +81,7 @@ class QuestionAnswer:
         top_n_documents.sort(key=lambda x: x[1]['counter'])
 
         # Get answer with possible answers (list of dictionaries {confidence: , doc:{} })
-        answers = self.get_answer(query_data, top_n_documents)
+        answers = self.get_answers(query_data, top_n_documents)
 
         # Fetch the source document text
         source_text_dict, doc_rec_set = None, None
@@ -89,14 +90,16 @@ class QuestionAnswer:
         else:
             doc_rec_set = set([doc_info[1]['Document'] for doc_info in top_n_documents])
 
-        return {"query": query_data["query"], "results": answers, "source_text_dictionary": source_text_dict, 'no_ans_found':doc_rec_set}
+        return {"query": query_data["query"], "results": answers,
+                "source_text_dictionary": source_text_dict, 'no_ans_found': doc_rec_set}
 
     @timing_decorator("Execution time to fetch source documents")
     def fetch_source_documents(self, detected_answers):
         """
+        Get all documents from _extracted_text collection, For highlighting and displaying answers
 
         :param detected_answers: [[dict]] a list of dictionaries containing the answers to the query
-        :return:
+        :return: (dict) key -> source document name, value -> Full text for document from Mongo
         """
         # Get the list of unique documents
         unique_documents = set()
@@ -104,12 +107,10 @@ class QuestionAnswer:
             unique_documents.add(ans_dict['document'])
 
         # Escape the username and password
-        escaped_username = quote_plus(username)
-        escaped_password = quote_plus(password)
+        escaped_username, escaped_password = quote_plus(username), quote_plus(password)
 
         # use MongoDb class to connect to database instance and get the documents
-        mongo_db = MongoDb(escaped_username, escaped_password, cluster_url,
-                           database_name, "extracted_text")
+        mongo_db = MongoDb(escaped_username, escaped_password, cluster_url, database_name, "extracted_text")
 
         source_text_dict = dict()
         if mongo_db.connect():
@@ -120,7 +121,14 @@ class QuestionAnswer:
         return source_text_dict
 
     @timing_decorator("Execution time to get answers from transformer")
-    def get_answer(self, query_data, candidate_documents):
+    def get_answers(self, query_data, candidate_documents):
+        """
+        Inspect top N documents for answer based on input query
+
+        :param query_data: (dict)
+        :param candidate_documents: ( [(float, dict)] ) -> (similarity_score, document dictionary)
+        :return: [dict] keys -> "confidence_score", "answer", "context", "document"
+        """
         # Concatenate tokens from all candidate chunks
         candidate_docs_tokens_concatenated = []
         prev_doc = None
@@ -135,23 +143,36 @@ class QuestionAnswer:
             candidate_docs_tokens_concatenated.extend(candidate_docs_tokens)
             prev_doc = candidate
 
-        chunks = [(candidate['tokens'], candidate['Document']) for sim_score, candidate in candidate_documents]
+        chunks_info = [(candidate['tokens'], candidate['Document'], candidate['counter']) for sim_score, candidate in candidate_documents]
         # Process each chunk separately and store logits
         with torch.no_grad():
             # Use ThreadPoolExecutor for parallel processing
             with ThreadPoolExecutor() as executor:
                 # Submit each chunk for processing concurrently
-                futures = [executor.submit(self.get_answer_and_confidence, chunk, doc, query_data) for (chunk, doc) in chunks]
+                futures = [executor.submit(self.get_answer_and_confidence, chunk, doc, cntr, query_data) for (chunk, doc, cntr) in chunks_info]
 
                 # Wait for all tasks to complete
                 candidate_responses_list = [future.result() for future in futures if "Sorry, I don't have information on that topic." not in future.result().get("answer", "")]
 
         return candidate_responses_list
 
-    def get_answer_and_confidence(self, chunk, document, query):
+    def get_answer_and_confidence(self, chunk, document, counter, query):
+        """
+        Get answer from trnasformer from query and chunk as context
+
+        :param counter: (int)
+        :param chunk:([str]) list of tokens as strings, document from mongo databse
+        :param document: (str) Document the chunk is derived from
+        :param query: (dict) Processed query
+        :return: (dict) keys:values
+            -> "confidence_score": (float) confidence of the output
+            -> "answer": (str) Representing the answer from the transformer output logits
+            -> "context": (str) Context input into transformer model
+            -> "document": (str) Source document
+        """
         chunk = [str(token) if isinstance(token, int) else token for token in chunk]
         inputs = self.tokenizer.encode_plus(query["tokenized_query"], chunk, max_length=512, return_tensors="pt",
-                                       padding="max_length", truncation=True)
+                                            padding="max_length", truncation=True)
 
         # Roberta Model does not have token_type_ids as an input argument
         if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
@@ -178,6 +199,8 @@ class QuestionAnswer:
 
         if answer == "":
             answer = "Sorry, I don't have information on that topic."
+        else:
+            print(f"Answer found in chunk count: {counter}")
         if query['query'] in answer:  # If roberta return logits are entire context
             escaped_query = re.escape(query['query'])
             answer = re.sub(escaped_query, "", answer)
@@ -188,17 +211,39 @@ class QuestionAnswer:
 
         context = self.tokenizer.convert_tokens_to_string(self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0]))
 
-        return {"confidence_score": confidence_score.item(), "answer": answer, "context": context, "document":document}
+        return {"confidence_score": confidence_score.item(), "answer": answer, "context": context, "document": document}
 
     @timing_decorator(f"Execution time to retrieve top {TOP_N} candidate documents")
     def get_candidate_docs(self, query_data):
+        """
+        Get similarity score between query embeddings and all document embeddings, sort by score and return top N
+
+        :param query_data: (dict) Processed query
+        :return: [(float, dict)] sorted list of tuples containing similarity score and data from Mongo
+        """
         documents = self.get_documents_from_mongo()
-        top_n_documents = self.get_topn_docs(documents_list=documents,
-                                             query_data=query_data)
+        with ThreadPoolExecutor() as executor:
+            # Submit each document for processing concurrently
+            futures = [executor.submit(self.get_doc_sim_scores, doc, query_data) for doc in documents]
 
-        return top_n_documents
+            # Wait for all tasks to complete
+            sim_scores = [future.result() for future in futures]
+        sim_scores.sort(key=lambda x: x[0], reverse=True)
 
-    def get_topn_docs(self, documents_list, query_data):
+        return sim_scores[:TOP_N]
+
+    def get_doc_sim_scores(self, document, query_data):
+        """
+        Cosine similarity score between query embedding and
+            - BOTH: combination of COMBINE_MEAN and MEAN_MAX
+            - MEAN_MAX: Avg. maximum cosine similarity between each embedding in query and embeddings in chunk
+            - COMBINE_MEAN: Cosine similarity between avg. embedding in query and avg. embedding in chunk
+            - MEAN_MEAN: Avg. Cosine similarity between embedding in query and embedding in chunk
+
+        :param document: (dict) Mongo queried document from parsed_documents
+        :param query_data: (dict) Processed query
+        :return: (float, dict) Similarity score and original document data
+        """
         query_embedding = np.array(query_data[self.EMBEDDINGS])
         query_tokens = np.array(query_data[self.TOKENS])
 
@@ -206,64 +251,66 @@ class QuestionAnswer:
         query_embedding = np.array([emb for emb, token in zip(query_embedding, query_tokens) if token != '[PAD]'])
 
         # List to store cosine similarity scores and corresponding document filenames
-        similarity_scores = []
+        chunk_tokens = np.array(document[DOCUMENT_TOKENS])
+        chunk_embeddings = tokens_to_embeddings(document[DOCUMENT_TOKENS], self.embedding_model)
 
-        for doc in documents_list:
-            chunk_embeddings = np.array(doc[DOCUMENT_EMBEDDING])
-            chunk_tokens = np.array(doc[DOCUMENT_TOKENS])
+        # remove the paddings and unknown tokens from the query
+        chunk_embeddings = np.array(
+            [emb for emb, token in zip(chunk_embeddings, chunk_tokens) if token not in ['[PAD]', '[UNK]']])
 
-            # remove the paddings and unknown tokens from the query
-            chunk_embeddings = np.array(
-                [emb for emb, token in zip(chunk_embeddings, chunk_tokens) if token not in ['[PAD]', '[UNK]']])
+        # Calculate cosine similarity between query_embedding and chunk_embeddings METHOD = 'MEAN_MAX'
+        if METHOD == 'MEAN_MAX':
+            similarity = cosine_similarity(query_embedding, chunk_embeddings)
+            similarity = np.mean(np.max(similarity, axis=1))
+        elif METHOD == 'MEAN_MEAN':
+            similarity = cosine_similarity(query_embedding, chunk_embeddings)
+            similarity = np.mean(similarity)
+        elif METHOD == 'COMBINE_MEAN':  # 'COMBINE_MEAN'
+            similarity = cosine_similarity(np.mean(query_embedding, axis=0).reshape(1, -1),
+                                           np.mean(chunk_embeddings, axis=0).reshape(1, -1))
+            similarity = np.mean(similarity)  # Get the single value out of the array
+        else:
+            mean_max_similarity = cosine_similarity(query_embedding, chunk_embeddings)
+            mean_max_similarity = np.mean(np.max(mean_max_similarity, axis=1))
+            combine_mean_similarity = cosine_similarity(np.mean(query_embedding, axis=0).reshape(1, -1),
+                                                        np.mean(chunk_embeddings, axis=0).reshape(1, -1))
+            combine_mean_similarity = np.mean(combine_mean_similarity)
+            similarity = .5 * mean_max_similarity + .5 * combine_mean_similarity
 
-            # Calculate cosine similarity between query_embedding and chunk_embeddings METHOD = 'MEAN_MAX'
-            if METHOD == 'MEAN_MAX':
-                similarity = cosine_similarity(query_embedding, chunk_embeddings)
-                similarity = np.mean(np.max(similarity, axis=1))
+        return (similarity, document)
 
-            elif METHOD == 'MEAN_MEAN':
-                similarity = cosine_similarity(query_embedding, chunk_embeddings)
-                similarity = np.mean(similarity)
-
-            # if METHOD == 'COMBINE_MEAN':
-            else:
-                similarity = cosine_similarity(np.mean(query_embedding, axis=0).reshape(1, -1),
-                                               np.mean(chunk_embeddings, axis=0).reshape(1, -1))
-                similarity = np.mean(similarity)  # Get the single value out of the array
-
-            # Store similarity score and filename
-            similarity_scores.append((similarity, doc))
-
-        # Sort the similarity_scores in descending order based on the similarity score
-        if similarity_scores:
-            similarity_scores.sort(key=lambda x: x[0], reverse=True)
-            # for confidence, parsed_doc_chunk_dict in similarity_scores[:TOP_N]:
-            #     print(parsed_doc_chunk_dict['counter'])
-            #     print(self.tokenizer.convert_tokens_to_string(parsed_doc_chunk_dict['tokens']))
-            #     print(parsed_doc_chunk_dict['Document'])
-            #     print(confidence)
-            #     print()
-            return similarity_scores[:TOP_N]
-        return similarity_scores
-
+    @timing_decorator("Time to fetch all documents")
     def get_documents_from_mongo(self):
+        """
+        Get all documents from the parsed_documents collection in Mongodb
+
+        :return: [dict] Keys -> tokens, tokens_less_sw, counter, Document
+        """
         # Escape the username and password
         escaped_username = quote_plus(username)
         escaped_password = quote_plus(password)
 
         # use MongoDb class to connect to database instance and get the documents
-        mongo_db = MongoDb(escaped_username, escaped_password, cluster_url,
-                           database_name, self.collection_name)
+        mongo_db = MongoDb(escaped_username, escaped_password, cluster_url, database_name, self.collection_name)
 
         if mongo_db.connect():
-            documents = [document for document in mongo_db.iterate_documents()]
+            documents = mongo_db.get_documents(query={}, inclusion={"tokens": 1, "tokens_less_sw": 1, "counter": 1,
+                                                                    "Document": 1, "_id": 0})
+            documents = list(documents)
+            # documents = [document for document in mongo_db.iterate_documents()]
             print(f"Total documents: {mongo_db.count_documents()}")
             mongo_db.disconnect()
             return documents
         return []
 
     @timing_decorator("Execution time to process query")
-    def process_query(self, user_query):
+    def process_query(self, user_query:str):
+        """
+        Prepare query from similarity score and transformer
+
+        :param user_query: (str)
+        :return: dict
+        """
         user_query = user_query.lower()
 
         # clean query for BERT input
@@ -288,7 +335,6 @@ class QuestionAnswer:
                                               token not in nltk_stop_words]
 
         # Pad or truncate the query to a fixed length of 20 tokens (BERT input)
-
         if len(tokenized_query) > MAX_QUERY_LENGTH:
             tokenized_query = tokenized_query[:MAX_QUERY_LENGTH]
         else:
@@ -316,15 +362,23 @@ class QuestionAnswer:
             "tokenized_query": tokenized_query,
             "tokenized_query_search": tokenized_query_for_search,
             "tokenized_query_search_less_sw": tokenized_query_for_search_less_sw,
-            "query_embedding": query_embeddings, #.tolist(),  # Just used for the candidate search
-            "query_embedding_search": query_embeddings_search, #.tolist(),  # Just used for the candidate search, cleaned
-            "query_embedding_search_less_sw": query_embeddings_less_sw # .tolist()
-            # Just used for the candidate search, cleaned more
+            "query_embedding": query_embeddings,  # Just used for the candidate search
+            "query_embedding_search": query_embeddings_search,  # Just used for the candidate search, cleaned
+            "query_embedding_search_less_sw": query_embeddings_less_sw  # .tolist()
         }
-        # return json.dumps(query_data['query'], indent=2)
         return query_data
 
-    def spell_check(self, user_query):
+    def spell_check(self, user_query) -> str:
+        """
+        Check from spelling errors in query
+         - Tokenize query
+         - Construct the words from the tokenized query
+         - For each word, ensure all tokens are in the word embedding model
+         - Otherwise spell check word
+
+        :param user_query:
+        :return: (str)
+        """
         tokenized_query = self.tokenizer.tokenize(user_query)
 
         # Group tokens into words
