@@ -13,12 +13,12 @@ import subprocess
 
 def get_embedding_model():
     if EMBEDDING_MODEL_TYPE == 'Word2Vec':
-        model = Word2Vec.load(os.getcwd(), "question_answer", "embedding_models", EMBEDDING_MODEL_FNAME)
+        embedding_model = Word2Vec.load(os.getcwd(), "question_answer", "embedding_models", EMBEDDING_MODEL_FNAME)
     elif EMBEDDING_MODEL_TYPE.lower() == 'glove':
         # Load the custom spaCy model
-        model = spacy.load(
+        embedding_model = spacy.load(
             os.path.join(os.getcwd(), "question_answer", "embedding_models", EMBEDDING_MODEL_FNAME.split(".bin")[0]))
-    return model
+    return embedding_model
 
 
 # Load your GloVe vectors into a custom spaCy model

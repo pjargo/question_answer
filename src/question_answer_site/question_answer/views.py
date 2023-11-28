@@ -9,7 +9,7 @@ from django.shortcuts import render
 from .utils import tokens_to_embeddings
 from .embedding_layer import update_embedding_model, get_embedding_model, \
     update_mongo_documents_bulk
-from .parse_document import parse_pdf, update_collection
+from .parse_document import parse_document, update_collection
 from .config import special_characters, TOKENS_TYPE, CHUNK_SIZE, CHUNK_OVERLAP, \
     username, password, cluster_url, database_name, DOCUMENT_EMBEDDING, TRANSFORMER_MODEL_NAME
 from transformers import RobertaTokenizer
@@ -60,12 +60,12 @@ def search_view(request):
 
             # Get the data in a dictionary
             print("parsing new file into list of dictionaries...")
-            parsed_data = parse_pdf(directory=file_path,
-                                    embedding_layer_model=get_embedding_model(),
-                                    tokenizer=tokenizer,
-                                    chunk_size=CHUNK_SIZE,
-                                    chunk_overlap=CHUNK_OVERLAP,
-                                    additional_stopwords=special_characters)
+            parsed_data = parse_document(directory=file_path,
+                                         embedding_layer_model=get_embedding_model(),
+                                         tokenizer=tokenizer,
+                                         chunk_size=CHUNK_SIZE,
+                                         chunk_overlap=CHUNK_OVERLAP,
+                                         additional_stopwords=special_characters)
             # parsed_data <- dict_keys(['chunk_text', 'chunk_text_less_sw', 'tokens', 'tokens_less_sw',
             # 'token_embeddings', 'token_embeddings_less_sw', 'Document', 'Path', 'Text', 'Original_Text', 'sha_256',
             # 'language', 'language_probability', 'counter'])
@@ -84,13 +84,10 @@ def search_view(request):
             selected_dicts = [{key: d[key] for key in selected_keys} for d in parsed_data]
             new_doc_df = pd.DataFrame(selected_dicts)  # Convert to DataFrame
 
-            # Set the embedding layer
-            # Get the data from Mongo
-            # Get tokens and counter values from all documents in the mongodb
-
             # Put New data in 'extracted_text' collection
             update_collection(collection="extracted_text", parsed_data=copy.deepcopy(parsed_data))
 
+            # Set the embedding layer, Get the data from Mongo, Get tokens and counter values from all documents
             # Get existing data in "parsed documents"
             mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name,
                               collection_name="parsed_documents")

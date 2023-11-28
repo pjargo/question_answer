@@ -36,9 +36,10 @@ escaped_password = quote_plus(password)
 def update_collection(collection: str, parsed_data):
     """
     Update Mongodb collection with data extracted from added file
-    :param collection: (str) mongodb colleciton name. either "extracted_text" or "parsed_documents"
+
+    :param collection: (str) mongodb collection name. either "extracted_text" or "parsed_documents"
     :param parsed_data: ([dict]) data from new document
-    :return:
+    :return: None
     """
     mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name,
                       collection_name=collection)
@@ -70,61 +71,72 @@ def update_collection(collection: str, parsed_data):
 
         doc_cnt = mongodb.count_documents()
         print(f"{doc_cnt} documents in '{collection}' after adding")
-
     mongodb.disconnect()  # Close mongo client
-    return
 
 
 def get_sha256(content):
     """
     Gets the sha256 code from the content of the entry
 
-    Args:
-        content : the end of week entry content, specifically a string
-
-    Returns:
-        string : sha256 code
+    :param content: (str) text
+    :return: (string) sha256 code
     """
     return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
 
 def get_text(filepath):
     """
-    Gets raw text from pdf file. Will translate russian and chinese documents to english.
+    Gets raw text from pdf file
 
-    Parameters
-    ----------
-    filepath (str) - the path to the pdf file
-    ru_model_path (str, None) - the path to the model to translate russian to english (default = None).  If None, model loaded from "language_parsers" directory.
-    zh_model_path (str, None) - the path to the model to translate chinese to english (default = None). If None, model loaded from "language_parsers" directory.
-
-    Returns
-    --------
-    str, str, str - returns the document text, the abstract of the text, and the language of the text
+    :param filepath: (str) the path to the pdf file
+    :return: (str, str) returns the document text, the abstract of the text, and the language of the text
     """
-    if not filepath.endswith('.pdf'):
-        print('File path not a pdf')
-        return None
+    if filepath.endswith('.pdf'):
+        doc = fitz.open(filepath)
+        full_text = ''.join(page.get_text('text') for page in doc)
+        doc.close()
+        return full_text
 
-    doc = fitz.open(filepath)
+    elif filepath.endswith('.txt') or filepath.endswith('csv'):
+        with open(filepath, 'r') as file:
+            full_text = ''.join(line.strip() for line in file)
+            return full_text
+    print('File not a recognized format')
+    return ''
 
-    full_text = ''
-    for page in doc:
-        full_text += page.get_text('text')
-    doc.close()
 
+def get_language(text):
+    """
+    Identfy language of the text
+
+    :param text: (str)
+    :return: language detected
+    """
     try:
-        langs = detect_langs(full_text)
+        languages = detect_langs(text)
     except:
         print('\tlanguage detection error!')
-        langs = ''
+        languages = ''
 
-    return full_text, langs
+    return languages
 
 
-def parse_pdf(directory, embedding_layer_model=None,
-              tokenizer=bert_base_tokenizer, chunk_size=100, chunk_overlap=0, additional_stopwords=[]):
+def parse_document(directory, embedding_layer_model=None, tokenizer=bert_base_tokenizer,
+                   chunk_size=100, chunk_overlap=0, additional_stopwords=None):
+    """
+    Parse PDF document or directory containing pdf document(s)
+
+    :param directory: (str) File path or directory path
+    :param embedding_layer_model:
+    :param tokenizer:
+    :param chunk_size:
+    :param chunk_overlap:
+    :param additional_stopwords:
+    :return:
+    """
     # Directory or file
+    if additional_stopwords is None:
+        additional_stopwords = []
     try:
         # Will cause exception if directory is a single file
         all_docx = os.listdir(directory)
@@ -135,19 +147,19 @@ def parse_pdf(directory, embedding_layer_model=None,
     # Get a list of dictionaries containing all the desired information, one for each pdf
     docs = []
     for filename in all_docx:
-        if filename.endswith('.pdf'):
-            # Get text and langs
-            filepath = os.path.join(directory, filename)
-            print(filepath, filename)
-            text, langs = get_text(filepath)
+        # Get text and languages
+        filepath = os.path.join(directory, filename)
+        print(filepath, filename)
+        text = get_text(filepath)
+        langs = get_language(text)
 
-            # put text in dictionary
-            pdf_dict = text_to_dict(text, langs)
-            pdf_dict['Document'], pdf_dict['Path'] = filename, filepath
-            if pdf_dict == {}:
-                continue
+        # put text in dictionary
+        pdf_dict = text_to_dict(text, langs)
+        pdf_dict['Document'], pdf_dict['Path'] = filename, filepath
+        if pdf_dict == {}:
+            continue
 
-            docs.append(pdf_dict)
+        docs.append(pdf_dict)
 
     # Put list of dictionaries into dataframe
     pdfs_df = pd.DataFrame(docs)
@@ -175,8 +187,9 @@ def parse_pdf(directory, embedding_layer_model=None,
         max_cnter = max(max_cnter, doc['counter'])
         sha_set.add(doc['sha_256'])
 
-    # dict_keys(['chunk_text', 'chunk_text_less_sw', 'tokens', 'tokens_less_sw', 'token_embeddings', 'token_embeddings_less_sw',
-    #            'Document', 'Path', 'Text', 'Original_Text', 'sha_256', 'language', 'language_probability', 'counter'])
+    # dict_keys(['chunk_text', 'chunk_text_less_sw', 'tokens', 'tokens_less_sw', 'token_embeddings',
+    # 'token_embeddings_less_sw', 'Document', 'Path', 'Text', 'Original_Text', 'sha_256', 'language',
+    # 'language_probability', 'counter'])
     chunck_dict_list = []
     for chunk_dict in parsed_list:
         if chunk_dict['sha_256'] in sha_set:
@@ -190,15 +203,11 @@ def parse_pdf(directory, embedding_layer_model=None,
 
 def text_to_dict(text, langs):
     """
-    Extracts document name, abstract, original text, path, sha256 hash, language, language probability, and date (if arxiv document authors, title, and url as well).
+    Generate dictionary of information from PDF
 
-    Parameters
-    ----------
-    text (str)
-
-    Returns
-    -------
-    dict - a dictionary with the following keys: Document, Abstract, Text, Abstract_Original, Original_Text, Path, sha_256, laguage, language_probability, Authors, Tilte, url, date
+    :param text: (str) Extracted text from document
+    :param langs:
+    :return: (dict) Information later to be added to dataframe
     """
     if text == '':
         return {}
@@ -206,7 +215,7 @@ def text_to_dict(text, langs):
     language_prob = 0.0 if langs == '' else langs[0].prob
     language = '' if langs == '' else langs[0].lang
 
-    sha256 = get_sha256(text)
+    sha256 = get_sha256(text)  # Get sha256
 
     section_dict = {'Document': '',
                     'Path': '',
@@ -229,6 +238,8 @@ def tokenize_df_of_texts(df, tokenizer=bert_base_tokenizer, REMOVE_SW_COL=False,
     """
     Use BERT tokenizer to tokenize a dataframe of extracted text
 
+    :param additional_stopwords:
+    :param REMOVE_SW_COL:
     :param df: (pandas.DataFrame) dataframe with 'TEXT' column
     :param tokenizer: (BertTokenizer.from_pretrained('bert-base-uncased'))
     :return: (pandas.DataFrame) modified dataframe
@@ -259,6 +270,7 @@ def chunk_df_of_tokens(df, chunk_size=100, embedding_model=None, overlap=0, addi
     """
     Chunk the dataframe that has previously been tokenized
 
+    :param tokenizer:
     :param df: (pandas.DataFrame)
     :param chunk_size: (int) Size of chunk we split or pad list of tokens into
     :param embedding_model: put tokens into their word embeddings
@@ -279,6 +291,7 @@ def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0, addition
     """
     Chunk the 'tokens' column in the dataframe and optionally get the embeddings of the tokens
 
+    :param tokenizer:
     :param df: (pandas.DataFrame) dataframe of parsed pdf documents
     :param chunk_size: Number of tokens per chunk
     :param model: (optional) Embedding Layer
@@ -337,7 +350,7 @@ def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[
     """
 
     :param tokens: ([int]) A list of integers representing the token ID's
-    :param max_chunk_length: (int) The lengeth of the sequence of each chunk
+    :param max_chunk_length: (int) The length of the sequence of each chunk
     :param overlap: By how many tokens
     :param additional_stopwords: ['from', 'subject', 're', 'edu', 'use', 'table', 'figure', 'arxiv', 'sin', 'cos', 'tan', 'log', 'fx', 'ft', 'dx', 'dt', 'xt']
     """
@@ -384,22 +397,17 @@ def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[
 
         current_chunk_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk))
         chunk_text.append(current_chunk_text)
-        current_chunk_text_less_sw = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk_less_sw))
         chunk_text_less_sw.append(current_chunk_text)
 
     return chunked_tokens, chunked_tokens_less_sw, chunk_text, chunk_text_less_sw
 
 
 def get_all_counter_sha():
-    username = "new_user_1"
-    password = "password33566"
-    # Escape the username and password
-    escaped_username = quote_plus(username)
-    escaped_password = quote_plus(password)
+    """
+    Get all document counter and sha256 values from mongo collection
 
-    cluster_url = "cluster0"
-    database_name = "question_answer"
-
+    :return: ([dict])
+    """
     collection_name = "parsed_documents"
     # collection_name = "extracted_text"
     cursor = list()
