@@ -1,0 +1,108 @@
+Starlink Explained: What You Need to Know About Elon Musk's Satellite Internet Service
+The SpaceX CEO continues to launch satellites into orbit to deliver high-speed broadband to rural and remote locations.
+
+When you read about billionaire entrepreneur Elon Musk, you might think of his electric car company, Tesla, space exploration venture SpaceX or his eventful handling of Twitter. Maybe you simply know him as one of the richest people on Earth.
+
+You may be less familiar with Starlink. This venture from Musk aims to sell internet connections to almost anyone on the planet through a growing network of private satellites orbiting overhead.
+
+After years of development within SpaceX, Starlink picked up the pace in 2021. Now, nearly two years and dozens of successful launches later, Starlink boasts over 4,200 functional satellites orbiting overhead. 
+
+
+Starlink offers service in over a million locations worldwide, across all seven continents. However, the budding broadband provider still faces a backlog of prospective customers waiting to receive equipment and start service. 
+
+Starlink isn't without its controversies. For starters, scientific community members have raised concerns about the growing impact of Starlink's low-earth orbit satellites on night sky visibility. Meanwhile, satellite internet competitors, including Viasat, HughesNet and Amazon's Project Kuiper, have also noticed Starlink's momentum, prompting regulatory jousting and attempts to slow Musk down. For example, Dish has taken issue with Starlink and claims that 5G expansions in the 12GHz band would interfere with its satellite signals. In August 2022, nearly two years after Starlink secured nearly $885.5 million in grant funds from the Federal Communications Commission, the FCC reversed that decision and canceled Starlink's subsidies, claiming that the service "failed to meet program requirements."
+
+"We cannot afford to subsidize ventures that are not delivering the promised speeds or are not likely to meet program requirements," said FCC Chairwoman Jessica Rosenworcel, while also noting that Starlink's technology "has real promise." 
+
+We'll continue to monitor Starlink's progress in 2023. For now, here's everything you should know about it.
+Technically a division within SpaceX, Starlink is also the name of the spaceflight company's "constellation," or growing network, of orbital satellites. The development of that network began in 2015, with the prototype satellites launched into orbit in 2018.
+
+Since then, SpaceX has deployed thousands of Starlink satellites into the constellation across multiple launches, the most recent of which took place on June 12 and delivered another 52 satellites into low-Earth orbit. That brings the total number of satellites launched to approximately 4,600.
+
+Do Starlink satellites connect my home to the internet?
+That's the idea, yes.
+
+Like fellow satellite internet providers HughesNet and Viasat, Starlink wants to sell internet access -- particularly to people in rural areas and other parts of the world who don't already have access to high-speed broadband.
+
+spacex hardware kit
+Starlink hardware includes a satellite dish and router, which you'll need to receive the signal from space. 
+SpaceX
+"Starlink is ideally suited for areas of the globe where connectivity has typically been a challenge," the Starlink website reads. "Unbounded by traditional ground infrastructure, Starlink can deliver high-speed broadband internet to locations where access has been unreliable or completely unavailable."
+
+All you need to do to connect is set up a small satellite dish at your home to receive the signal and pass the bandwidth on to your router. The company offers several mounting options for rooftops, yards and the exterior of your home. There's even a Starlink app for Android and iOS that uses augmented reality to help customers pick the best location and position for their receivers.
+
+Starlink's service is available in select regions in the US, Canada and abroad and, per a May post on the company's official Twitter account, now boasts over 1.5 million subscribers.
+
+— Starlink (@Starlink) May 6, 2023
+Expect the coverage map to grow as more satellites enter the constellation. Eventually, Starlink hopes to blanket the entire planet in a usable, high-speed Wi-Fi signal, including for moving vehicles and in-flight Wi-Fi.
+
+What speeds will you get with Starlink?
+According to the internet speed-tracking site Ookla, which analyzed satellite internet performance during the first quarter of 2023, Starlink offered average download speeds of nearly 67Mbps in the US. That's down significantly from the end of 2021, when Starlink had median download speeds of just over 100Mbps. The results are still nearly double those for satellite rival Viasat and more than four times the median numbers of HughesNet. However, Starlink falls well shy of the numbers for the entire fixed broadband category (193Mbps), which includes satellite and other modes of delivering connectivity to peoples' homes.
+
+"Starlink users typically experience download speeds between 25 and 220Mbps, with a majority of users experiencing speeds over 100Mbps," Starlink's website says. "As we launch more satellites, install more ground stations and improve our networking software, data speed, latency and uptime will improve dramatically."
+
+To that end, Musk tweeted in February 2021 that he expected the service to double its top speeds to 300Mbps by the end of that year. In 2023, such claims seem far from reality, especially considering the Ookla data. 
+
+In 2021, CNET's John Kim signed up for Starlink at his home in California and began testing it at various locations. At home, he averaged download speeds of around 78Mbps and latency of around 36ms. You can see more of his first impressions in the video above.
+
+How much does Starlink cost?
+Starlink is now accepting orders on a first-come, first-served basis, so you'll need to request service, put down a $99 deposit, and then wait through the backlog. During its beta in 2021, Starlink said that some preorders could take as long as six months to fulfill -- in some regions, Starlink now says that new orders may not be fulfilled until late in 2023. 
+
+The service was initially billed at $99 per month (plus taxes and fees) and an initial payment of $499 for the mountable satellite dish and router you'll need to install at home. In March 2022, despite earlier predictions from SpaceX executives that the hardware costs would come down over time, SpaceX raised those prices to $120 per month and $599 upfront.
+
+$120 per month is a lot for an internet connection, especially one that isn't nearly as fast as a fiber connection. Still, Musk is betting that the cost will be worth it for people who have thus far lived without access to a reliable connection. That said, Starlink does offer a $90 monthly plan for folks in "high-availability locations." But the vast majority -- or "most locations," as it says on the website -- will face a monthly charge of $120. 
+
+In April of 2021, SpaceX President Gwynne Shotwell said that Starlink wanted to keep pricing as simple and transparent as possible and had no plans to introduce service tiers. However, that approach changed in 2022 by introducing a new priority tier with a scanning array twice as big as the standard plan and with download speeds ranging from 40 to 220Mbps. The three plans within that tier cost $250, $500 or $1,500 monthly, plus an initial payment of $2,500 for the equipment. 
+
+Where can you get Starlink service?
+Starlink service is currently limited to select regions within various countries despite promising to blanket the entire globe in coverage by this time. Still, the coverage map will grow considerably as more satellites join the constellation. 
+
+Per Musk, the list of countries currently serviced by the growing network of low-earth orbit satellites includes the US, Canada, the UK, France, Germany, Austria, the Netherlands, Ireland, Belgium, Switzerland, Denmark, Portugal, Australia and New Zealand. Starlink's preorder agreement includes options for requesting service in other countries, including Italy, Poland, Spain and Chile.
+
+There's still a way to go -- Starlink will likely need at least 10,000 satellites in orbit before it can claim to offer full service to most of the globe (and SpaceX has shown signs that it wants as many as 42,000 satellites in the constellation). It's still less than half of the way there, with coverage focused on regions sitting between 45 and 53 degrees north latitude.
+
+According to the FCC, which recently added Starlink to its database of broadband providers, the service was available to nearly 97% of Americans as of late May 2023. 
+
+Why opt for satellite service? Isn't fiber faster?
+Fiber, or internet delivered via ground-laid fiber-optic cable, offers upload and download speeds much faster than satellite internet -- but, as companies like Google will tell you, there's nothing fast about deploying the infrastructure necessary to get fiber to people's homes. That's not to say there's anything simple about shooting satellites into space. Still, with fewer sharp-elbowed competitors -- and a lot less red tape to cut through -- there's every reason to believe that services like Starlink will reach the bulk of underserved communities long before fiber ever will. Recent FCC filings also suggest that Starlink could ultimately double as a dedicated phone service, too.
+
+And don't forget that this is Elon Musk we're talking about. SpaceX is the only company on the planet with a landable, reusable rocket capable of delivering payload after payload into orbit. That's a mighty advantage in the commercial space race. On top of that, Musk said in 2018 that Starlink would help provide SpaceX with the revenue needed to fund the company's long-held ambition to establish a base on Mars. 
+
+If that day arrives, it's also likely that SpaceX will try to establish a satellite constellation on the red planet. That means that Starlink customers are potentially doubling as guinea pigs for the Martian wireless networks of the future.
+
+"If you send a million people to Mars, you better provide some way for them to communicate," Shotwell said in 2016, speaking about the company's long-term vision for Starlink. "I don't think the people who go to Mars are going to be satisfied with some terrible, old-fashioned radios. They'll want their iPhones or Androids on Mars."
+
+Section of Starlink's terms of service agreement referencing Mars
+Enlarge Image
+Starlink's terms of service include a Mars clause: Users must agree that Mars is a free planet unbound by the authority or sovereignty of any Earth-bound government.
+Starlink; screenshot by Ry Crist/CNET
+As CNET's Jesse Orral noted in a video about Starlink, you'll even find hints of Musk's plans for Mars in the Starlink terms of service, which at one point reads:
+
+"For services provided on Mars, or in transit to Mars via Starship or other colonization spacecraft, the parties recognize Mars as a free planet and that no Earth-based government has authority or sovereignty over Martian activities." 
+
+Still, with top speeds currently pegged at 220Mbps, Starlink's satellite internet won't be anywhere near the gigabit fiber speeds people on Earth are used to anytime soon -- and that's due to the sheer distance each transmission needs to travel on its round-trip journey from your home to the stratosphere. It's a factor that also jacks up latency, so you'll often notice awkward lulls in the conversation if you're talking to someone over a satellite connection.
+
+Starlink promises to improve existing expectations for satellite connections by placing satellites into orbit at lower altitudes than before -- 60 times closer to the Earth's surface than traditional satellites, per the company's claims. This low-earth orbit approach means less distance for those Starlink signals to travel -- thus, less latency. 
+
+Does bad weather affect service?
+Struggles with inclement weather are definitely a downside to satellite internet. Per Starlink's FAQ, the receiver can melt snow that lands on it, but it can't do anything about surrounding snow build-up and other obstructions that might block its line of sight to the satellite.
+
+"We recommend installing Starlink in a location that avoids snow build-up and other obstructions from blocking the field of view," the FAQ reads. "Heavy rain or wind can also affect your satellite internet connection, potentially leading to slower speeds or a rare outage."
+
+Any other issues with Starlink satellites?
+There's plenty of concern about the proliferation of privately owned satellites in space and controversy in astronomical circles about the impact of low-orbiting satellites on the night sky. 
+
+In 2019, shortly after Starlink's first broadband satellite deployment, the International Astronomical Union released an alarm-sounding statement warning of unforeseen consequences for stargazing and the protection of nocturnal wildlife.
+
+"We do not yet understand the impact of thousands of these visible satellites scattered across the night sky and despite their good intentions, these satellite constellations may threaten both," the statement reads.
+
+Since then, Starlink has begun testing various designs intended to reduce the brightness and visibility of its satellites. At the start of 2020, the company tested a "DarkSat" satellite with a special, non-reflective coating. Later, in June 2020, the company launched a "VisorSat" satellite that features a special sunshade visor. In August, Starlink launched another batch of satellites -- this time, they all were equipped with visors.
+
+"We want to make sure we do the right thing to make sure little kids can look through their telescope," Shotwell said. "It's cool for them to see a Starlink. But they should be looking at Saturn, at the moon ... and not want to be interrupted."
+
+"The Starlink teams have worked closely with leading astronomers around the world to better understand the specifics of their observations and engineering changes we can make to reduce satellite brightness," the company website reads.
+
+Where can I learn more about Starlink?
+We'll continue to cover Starlink's progress from various angles here on CNET, so stay tuned. You should also keep track of Eric Mack's excellent work covering Starlink. Among other issues, he closely examines the project's goals and challenges and the implications for underserved internet consumers and astronomers concerned with light pollution obstructing views in the night sky.
+
+Beyond that, we expect to continue testing Starlink's network for ourselves as it expands. When we know more about how the satellite service stacks up as an internet provider, we'll tell you all about it.

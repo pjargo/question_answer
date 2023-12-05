@@ -107,7 +107,7 @@ def get_text(filepath):
 
 def get_language(text):
     """
-    Identfy language of the text
+    Identify language of the text
 
     :param text: (str)
     :return: language detected
@@ -149,15 +149,15 @@ def parse_document(directory, embedding_layer_model=None, tokenizer=bert_base_to
     for filename in all_docx:
         # Get text and languages
         filepath = os.path.join(directory, filename)
-        print(filepath, filename)
+        print(f"file path: {filepath},\nfile name: {filename}")
         text = get_text(filepath)
         langs = get_language(text)
 
         # put text in dictionary
         pdf_dict = text_to_dict(text, langs)
-        pdf_dict['Document'], pdf_dict['Path'] = filename, filepath
         if pdf_dict == {}:
             continue
+        pdf_dict['Document'], pdf_dict['Path'] = filename, filepath
 
         docs.append(pdf_dict)
 

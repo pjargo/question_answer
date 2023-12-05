@@ -158,7 +158,7 @@ class QuestionAnswer:
 
     def get_answer_and_confidence(self, chunk, document, counter, query):
         """
-        Get answer from trnasformer from query and chunk as context
+        Get answer from transformer from query and chunk as context
 
         :param counter: (int)
         :param chunk:([str]) list of tokens as strings, document from mongo databse

@@ -1,6 +1,4 @@
-from .config import special_characters, TOKENS_TYPE, EMBEDDING_MODEL_FNAME, CHUNK_SIZE, CHUNK_OVERLAP, \
-    EMBEDDING_MODEL_TYPE, username, password, cluster_url, database_name, VECTOR_SIZE, WINDOW, MIN_COUNT, SG, \
-    DOCUMENT_EMBEDDING, TRANSFORMER_MODEL_NAME
+from .config import TOKENS_TYPE, VECTOR_SIZE, WINDOW, MIN_COUNT, SG
 from gensim.models import Word2Vec
 import spacy
 import os
