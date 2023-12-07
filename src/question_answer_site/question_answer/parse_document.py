@@ -13,7 +13,8 @@ from nltk.stem import WordNetLemmatizer
 from .mongodb import MongoDb
 from .utils import remove_non_text_elements, clean_text, remove_non_word_chars, deal_with_line_breaks_and_hyphenations, \
     tokens_to_embeddings
-from .config import username, password, cluster_url, database_name
+from .config import username, password, cluster_url, database_name, mongo_host, mongo_port, mongo_username, mongo_password, \
+    mongo_auth_db, mongo_database_name
 from urllib.parse import quote_plus
 from gibberish_detector import detector
 from gibberish_detector import trainer
@@ -32,6 +33,9 @@ Detector = detector.Detector(
 escaped_username = quote_plus(username)
 escaped_password = quote_plus(password)
 
+# Aerospace Mongo Credentials
+mongo_escaped_username = quote_plus(mongo_username)
+mongo_escaped_password = quote_plus(mongo_password)
 
 def update_collection(collection: str, parsed_data):
     """
@@ -41,8 +45,22 @@ def update_collection(collection: str, parsed_data):
     :param parsed_data: ([dict]) data from new document
     :return: None
     """
-    mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name,
-                      collection_name=collection)
+    # Personal connection
+    # mongodb = MongoDb(username=escaped_username, 
+    #                   password= escaped_password, 
+    #                   cluster_url=cluster_url, 
+    #                   database_name=database_name,
+    #                   collection_name=collection)
+    
+    # Aerospace credentials
+    mongodb = MongoDb(username=mongo_escaped_username, 
+                      password= mongo_escaped_password, 
+                      database_name=mongo_database_name,
+                      mongo_host=mongo_host,
+                      collection_name=collection,
+                      mongo_port=mongo_port,
+                      mongo_auth_db=mongo_auth_db)
+                      
     if mongodb.connect():
         print(f"Updating the '{collection}' collection")
         doc_cnt = mongodb.count_documents()
@@ -411,7 +429,23 @@ def get_all_counter_sha():
     collection_name = "parsed_documents"
     # collection_name = "extracted_text"
     cursor = list()
-    mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name, collection_name)
+
+    # use MongoDb class to connect to database instance and get the documents
+    # mongodb = MongoDb(username=escaped_username, 
+    #           password= escaped_password, 
+    #           cluster_url=cluster_url, 
+    #           database_name=database_name,
+    #           collection_name=collection_name)
+    
+    # Aerospace credentials
+    mongodb = MongoDb(username=mongo_escaped_username, 
+                      password= mongo_escaped_password, 
+                      database_name=mongo_database_name,
+                      mongo_host=mongo_host,
+                      collection_name=collection_name,
+                      mongo_port=mongo_port,
+                      mongo_auth_db=mongo_auth_db)
+                          
     if mongodb.connect():
         cursor = mongodb.get_collection().find({}, {"counter": 1, "sha_256": 1, "_id": 0})
 

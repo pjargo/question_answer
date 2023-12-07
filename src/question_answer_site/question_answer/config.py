@@ -23,6 +23,13 @@ password = "password33566"
 cluster_url = "cluster0"
 database_name = "question_answer"
 
+# Aerospace Mongo Credentials
+mongo_host = 'e3-dev-services.e3.aero.org'
+mongo_port = 31523
+mongo_username = 'playground_user'
+mongo_password = 'playground123'
+mongo_auth_db = 'admin'  # The authentication database
+mongo_database_name = 'playground'  # The name of your database
 
 special_characters = [
     "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/", "://", "https",'"', '"...', "/)","www",

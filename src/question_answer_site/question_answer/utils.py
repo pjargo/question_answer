@@ -1,6 +1,7 @@
 import gensim
 import spacy
 import re
+import os
 import unicodedata
 import numpy as np
 from gibberish_detector import detector
@@ -8,6 +9,14 @@ from gibberish_detector import trainer
 import urllib.request as req
 from spellchecker import SpellChecker
 from transformers import BertTokenizer
+
+# Set proxy information
+proxy_url = "http://33566:wed@proxy-west.aero.org:8080"
+
+# Set proxy environment variables
+os.environ['HTTP_PROXY'] = proxy_url
+os.environ['HTTPS_PROXY'] = proxy_url
+
 bert_base_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 target_url = 'https://raw.githubusercontent.com/rrenaud/Gibberish-Detector/master/big.txt'

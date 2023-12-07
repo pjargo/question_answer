@@ -4,22 +4,39 @@ from pymongo import errors
 
 
 class MongoDb:
-    def __init__(self, username, password, cluster_url, database_name=None, collection_name=None):
+    def __init__(self, username, password, mongo_host=None, cluster_url=None, database_name=None, collection_name=None, mongo_port=None, mongo_auth_db=None):
         self.username = username
         self.password = password
         self.cluster_url = cluster_url
         self.database_name = database_name
         self.collection_name = collection_name
         self.client = None
-
+        
+        # For Aerospace Connection
+        self.mongo_host = mongo_host
+        self.mongo_port = mongo_port
+        self.mongo_auth_db = mongo_auth_db
+        
     def connect(self):
         try:
-            uri = f"mongodb+srv://{self.username}:{self.password}@{self.cluster_url}.pog6zw2.mongodb.net/?retryWrites=true&w=majority"
+            # Personl Connection
+            # uri = f"mongodb+srv://{self.username}:{self.password}@{self.cluster_url}.pog6zw2.mongodb.net/?retryWrites=true&w=majority"
             # Create a new client and connect to the server
-            self.client = MongoClient(uri, server_api=ServerApi('1'))
+            # self.client = MongoClient(uri, server_api=ServerApi('1'))
+            
+            # Aerospace connection
+            self.client = MongoClient(
+            host=[f"{self.mongo_host}:{self.mongo_port}"],
+            username=self.username,
+            password=self.password,
+            authSource=self.mongo_auth_db,
+            authMechanism='SCRAM-SHA-256')
+            
+            self.client.admin.command('ping')
+            print("Pinged your deployment. You successfully connected to MongoDB!")
             return True
         except Exception as e:
-            print(f"Error connecting to MongoDB: {e}")
+            print(f"Error connecting to MongoDBs: {e}")
             return False
 
     def disconnect(self):

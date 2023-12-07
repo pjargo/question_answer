@@ -11,7 +11,8 @@ from .embedding_layer import update_embedding_model, get_embedding_model, \
     update_mongo_documents_bulk
 from .parse_document import parse_document, update_collection
 from .config import special_characters, TOKENS_TYPE, CHUNK_SIZE, CHUNK_OVERLAP, \
-    username, password, cluster_url, database_name, DOCUMENT_EMBEDDING, TRANSFORMER_MODEL_NAME
+    username, password, cluster_url, database_name, DOCUMENT_EMBEDDING, TRANSFORMER_MODEL_NAME, \
+    mongo_host, mongo_port, mongo_username, mongo_password, mongo_auth_db, mongo_database_name
 from transformers import RobertaTokenizer
 from .mongodb import MongoDb
 from urllib.parse import quote_plus
@@ -27,6 +28,8 @@ tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_
 escaped_username = quote_plus(username)
 escaped_password = quote_plus(password)
 
+mongo_escaped_username = quote_plus(mongo_username)
+mongo_escaped_password = quote_plus(mongo_password)
 
 # Create your views here.
 def index(request):
@@ -89,8 +92,23 @@ def search_view(request):
 
             # Set the embedding layer, Get the data from Mongo, Get tokens and counter values from all documents
             # Get existing data in "parsed documents"
-            mongodb = MongoDb(escaped_username, escaped_password, cluster_url, database_name,
-                              collection_name="parsed_documents")
+                              
+            # use MongoDb class to connect to database instance and get the documents
+            # mongodb = MongoDb(username=escaped_username, 
+            #           password= escaped_password, 
+            #           cluster_url=cluster_url, 
+            #           database_name=database_name,
+            #           collection_name="parsed_documents")
+            
+            # Aerospace credentials
+            mongodb = MongoDb(username=mongo_escaped_username, 
+                              password= mongo_escaped_password, 
+                              database_name=mongo_database_name,
+                              mongo_host=mongo_host,
+                              collection_name="parsed_documents",
+                              mongo_port=mongo_port,
+                              mongo_auth_db=mongo_auth_db)
+                              
             if mongodb.connect():
                 cursor = mongodb.get_collection().find({}, {TOKENS_TYPE: 1, 'counter': 1, '_id': 0})
                 existing_docs_df = pd.DataFrame(list(cursor))  # Put in dataframe

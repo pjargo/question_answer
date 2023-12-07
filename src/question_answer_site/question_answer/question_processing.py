@@ -12,9 +12,17 @@ from sklearn.metrics.pairwise import cosine_similarity
 from transformers import BertTokenizer, BertForQuestionAnswering, RobertaTokenizer, RobertaForQuestionAnswering
 import time
 from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKENS_EMBEDDINGS, database_name, \
-    DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url
+    DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url, \
+    mongo_host, mongo_port, mongo_username, mongo_password, mongo_auth_db, mongo_database_name
 from concurrent.futures import ThreadPoolExecutor
 
+
+# Set proxy information
+proxy_url = "http://33566:wed@proxy-west.aero.org:8080"
+
+# Set proxy environment variables
+os.environ['HTTP_PROXY'] = proxy_url
+os.environ['HTTPS_PROXY'] = proxy_url
 
 def timing_decorator(custom_message):
     def decorator(func):
@@ -108,15 +116,32 @@ class QuestionAnswer:
 
         # Escape the username and password
         escaped_username, escaped_password = quote_plus(username), quote_plus(password)
+        
+        # Aerospace Mongo Credentials
+        mongo_escaped_username = quote_plus(mongo_username)
+        mongo_escaped_password = quote_plus(mongo_password)
 
         # use MongoDb class to connect to database instance and get the documents
-        mongo_db = MongoDb(escaped_username, escaped_password, cluster_url, database_name, "extracted_text")
+        # mongodb = MongoDb(username=escaped_username, 
+        #           password= escaped_password, 
+        #           cluster_url=cluster_url, 
+        #           database_name=database_name,
+        #           collection_name="extracted_text")
+        
+        # Aerospace credentials
+        mongodb = MongoDb(username=mongo_escaped_username, 
+                          password= mongo_escaped_password, 
+                          database_name=mongo_database_name,
+                          mongo_host=mongo_host,
+                          collection_name="extracted_text",
+                          mongo_port=mongo_port,
+                          mongo_auth_db=mongo_auth_db)
 
         source_text_dict = dict()
-        if mongo_db.connect():
+        if mongodb.connect():
             for source_doc_name in unique_documents:
                 source_text_dict[source_doc_name] = \
-                    list(mongo_db.get_collection().find({'Document': source_doc_name}))[0]['Text']
+                    list(mongodb.get_collection().find({'Document': source_doc_name}))[0]['Text']
 
         return source_text_dict
 
@@ -289,17 +314,34 @@ class QuestionAnswer:
         # Escape the username and password
         escaped_username = quote_plus(username)
         escaped_password = quote_plus(password)
+        
+        # Aerospace Mongo Credentials
+        mongo_escaped_username = quote_plus(mongo_username)
+        mongo_escaped_password = quote_plus(mongo_password)
 
-        # use MongoDb class to connect to database instance and get the documents
-        mongo_db = MongoDb(escaped_username, escaped_password, cluster_url, database_name, self.collection_name)
+        # Use MongoDb class to connect to database instance and get the documents
+        # mongodb = MongoDb(username=escaped_username, 
+        #           password= escaped_password, 
+        #           cluster_url=cluster_url, 
+        #           database_name=database_name,
+        #           collection_name="extracted_text")
+        
+        # Aerospace credentials
+        mongodb = MongoDb(username=mongo_escaped_username, 
+                          password= mongo_escaped_password, 
+                          database_name=mongo_database_name,
+                          mongo_host=mongo_host,
+                          collection_name=self.collection_name,
+                          mongo_port=mongo_port,
+                          mongo_auth_db=mongo_auth_db)
 
-        if mongo_db.connect():
-            documents = mongo_db.get_documents(query={}, inclusion={"tokens": 1, "tokens_less_sw": 1, "counter": 1,
-                                                                    "Document": 1, "_id": 0})
+        if mongodb.connect():
+            documents = mongodb.get_documents(query={}, inclusion={"tokens": 1, "tokens_less_sw": 1, "counter": 1,
+                                                                   "Document": 1, "_id": 0})
             documents = list(documents)
-            # documents = [document for document in mongo_db.iterate_documents()]
-            print(f"Total documents: {mongo_db.count_documents()}")
-            mongo_db.disconnect()
+            # documents = [document for document in mongodb.iterate_documents()]
+            print(f"Total documents: {mongodb.count_documents()}")
+            mongodb.disconnect()
             return documents
         return []
 
