@@ -12,14 +12,28 @@ from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
 from .mongodb import MongoDb
 from .utils import remove_non_text_elements, clean_text, remove_non_word_chars, deal_with_line_breaks_and_hyphenations, \
-    tokens_to_embeddings
-from .config import username, password, cluster_url, database_name, mongo_host, mongo_port, mongo_username, mongo_password, \
+    tokens_to_embeddings, timing_decorator
+from .config import username, password, cluster_url, database_name, mongo_host, mongo_port, mongo_username, \
+    mongo_password, \
     mongo_auth_db, mongo_database_name
 from urllib.parse import quote_plus
 from gibberish_detector import detector
 from gibberish_detector import trainer
 import urllib.request as req
 from transformers import BertTokenizer
+import platform
+import datetime
+
+# Set proxy information if windows
+if platform.system() == "Windows":
+    # Get the current date and time
+    now = datetime.now()
+    day = now.strftime("%A")
+    proxy_url = f"http://33566:{day[0:3]}@proxy-west.aero.org:8080"
+
+    # Set proxy environment variables
+    os.environ['HTTP_PROXY'] = proxy_url
+    os.environ['HTTPS_PROXY'] = proxy_url
 
 bert_base_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
@@ -34,9 +48,11 @@ escaped_username = quote_plus(username)
 escaped_password = quote_plus(password)
 
 # Aerospace Mongo Credentials
-mongo_escaped_username = quote_plus(mongo_username)
-mongo_escaped_password = quote_plus(mongo_password)
+aero_escaped_username = quote_plus(mongo_username)
+aero_escaped_password = quote_plus(mongo_password)
 
+
+@timing_decorator("Total time to update the collection")
 def update_collection(collection: str, parsed_data):
     """
     Update Mongodb collection with data extracted from added file
@@ -45,22 +61,23 @@ def update_collection(collection: str, parsed_data):
     :param parsed_data: ([dict]) data from new document
     :return: None
     """
-    # Personal connection
-    # mongodb = MongoDb(username=escaped_username, 
-    #                   password= escaped_password, 
-    #                   cluster_url=cluster_url, 
-    #                   database_name=database_name,
-    #                   collection_name=collection)
-    
-    # Aerospace credentials
-    mongodb = MongoDb(username=mongo_escaped_username, 
-                      password= mongo_escaped_password, 
-                      database_name=mongo_database_name,
-                      mongo_host=mongo_host,
-                      collection_name=collection,
-                      mongo_port=mongo_port,
-                      mongo_auth_db=mongo_auth_db)
-                      
+    if platform.system() == "Darwin":
+        # Personal Mongo instance
+        mongodb = MongoDb(username=escaped_username,
+                          password=escaped_password,
+                          cluster_url=cluster_url,
+                          database_name=database_name,
+                          collection_name=collection)
+    else:
+        # Aerospace credentials
+        mongodb = MongoDb(username=aero_escaped_username,
+                          password=aero_escaped_password,
+                          database_name=mongo_database_name,
+                          mongo_host=mongo_host,
+                          collection_name=collection,
+                          mongo_port=mongo_port,
+                          mongo_auth_db=mongo_auth_db)
+
     if mongodb.connect():
         print(f"Updating the '{collection}' collection")
         doc_cnt = mongodb.count_documents()
@@ -72,6 +89,7 @@ def update_collection(collection: str, parsed_data):
                       'chunk_text_less_sw']
         parsed_need = ['counter', 'token_embeddings_less_sw', 'tokens_less_sw', 'tokens']
         extracted_need = ['Original_Text', 'Text']
+        documents = list()
         for data_obj in parsed_data:
             # Update extracted_text collection
             if data_obj['Document'] not in document_tracker and collection == "extracted_text":
@@ -79,14 +97,16 @@ def update_collection(collection: str, parsed_data):
                     data_obj.pop(key)
 
                 document_tracker.add(data_obj['Document'])
-                mongodb.insert_document(data_obj)  # Add the data to the mongo collection
+                # mongodb.insert_document(data_obj)  # Add the data to the mongo collection
 
             # Update parsed_documents collection
             elif collection == "parsed_documents":
                 for key in never_need + extracted_need:
                     data_obj.pop(key)
-                mongodb.insert_document(data_obj)
-
+                # mongodb.insert_document(data_obj)
+            documents.append(data_obj)
+        print("inserting documents...")
+        mongodb.insert_document(documents)
         doc_cnt = mongodb.count_documents()
         print(f"{doc_cnt} documents in '{collection}' after adding")
     mongodb.disconnect()  # Close mongo client
@@ -182,6 +202,8 @@ def parse_document(directory, embedding_layer_model=None, tokenizer=bert_base_to
     # Put list of dictionaries into dataframe
     pdfs_df = pd.DataFrame(docs)
     print('processing text...')
+    print(pdfs_df.shape)
+    print(pdfs_df.columns)
     pdfs_df = cleanup(pdfs_df, col='Text', replace_math=False, replace_numbers=False,
                       check_pos=False, remove_meta_data=False, remove_punct=False,
                       add_acronym_periods=False, lemmatize=False, stem=False,
@@ -426,26 +448,25 @@ def get_all_counter_sha():
 
     :return: ([dict])
     """
-    collection_name = "parsed_documents"
-    # collection_name = "extracted_text"
-    cursor = list()
+    if platform.system() == "Darwin":
+        # Personal Mongo instance - MacOS
+        # use MongoDb class to connect to database instance and get the documents
+        mongodb = MongoDb(username=escaped_username,
+                          password=escaped_password,
+                          cluster_url=cluster_url,
+                          database_name=database_name,
+                          collection_name="parsed_documents")
+    else:
+        # Aerospace credentials
+        mongodb = MongoDb(username=aero_escaped_username,
+                          password=aero_escaped_password,
+                          database_name=mongo_database_name,
+                          mongo_host=mongo_host,
+                          collection_name="parsed_documents",
+                          mongo_port=mongo_port,
+                          mongo_auth_db=mongo_auth_db)
 
-    # use MongoDb class to connect to database instance and get the documents
-    # mongodb = MongoDb(username=escaped_username, 
-    #           password= escaped_password, 
-    #           cluster_url=cluster_url, 
-    #           database_name=database_name,
-    #           collection_name=collection_name)
-    
-    # Aerospace credentials
-    mongodb = MongoDb(username=mongo_escaped_username, 
-                      password= mongo_escaped_password, 
-                      database_name=mongo_database_name,
-                      mongo_host=mongo_host,
-                      collection_name=collection_name,
-                      mongo_port=mongo_port,
-                      mongo_auth_db=mongo_auth_db)
-                          
+    cursor = list()
     if mongodb.connect():
         cursor = mongodb.get_collection().find({}, {"counter": 1, "sha_256": 1, "_id": 0})
 

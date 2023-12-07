@@ -20,6 +20,7 @@ import pandas as pd
 import numpy as np
 import time
 from django.http import JsonResponse
+import platform
 
 # Set the Tokenizer for your specific BERT model variant
 tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_space=True)
@@ -28,8 +29,9 @@ tokenizer = RobertaTokenizer.from_pretrained(TRANSFORMER_MODEL_NAME, add_prefix_
 escaped_username = quote_plus(username)
 escaped_password = quote_plus(password)
 
-mongo_escaped_username = quote_plus(mongo_username)
-mongo_escaped_password = quote_plus(mongo_password)
+aero_escaped_username = quote_plus(mongo_username)
+aero_escaped_password = quote_plus(mongo_password)
+
 
 # Create your views here.
 def index(request):
@@ -92,23 +94,23 @@ def search_view(request):
 
             # Set the embedding layer, Get the data from Mongo, Get tokens and counter values from all documents
             # Get existing data in "parsed documents"
-                              
-            # use MongoDb class to connect to database instance and get the documents
-            # mongodb = MongoDb(username=escaped_username, 
-            #           password= escaped_password, 
-            #           cluster_url=cluster_url, 
-            #           database_name=database_name,
-            #           collection_name="parsed_documents")
-            
-            # Aerospace credentials
-            mongodb = MongoDb(username=mongo_escaped_username, 
-                              password= mongo_escaped_password, 
-                              database_name=mongo_database_name,
-                              mongo_host=mongo_host,
-                              collection_name="parsed_documents",
-                              mongo_port=mongo_port,
-                              mongo_auth_db=mongo_auth_db)
-                              
+            if platform.system() == "Darwin":
+                # Personal Mongo instance
+                mongodb = MongoDb(username=escaped_username,
+                                  password=escaped_password,
+                                  cluster_url=cluster_url,
+                                  database_name=database_name,
+                                  collection_name="parsed_documents")
+            else:
+                # Aerospace credentials
+                mongodb = MongoDb(username=aero_escaped_username,
+                                  password=aero_escaped_password,
+                                  database_name=mongo_database_name,
+                                  mongo_host=mongo_host,
+                                  collection_name="parsed_documents",
+                                  mongo_port=mongo_port,
+                                  mongo_auth_db=mongo_auth_db)
+
             if mongodb.connect():
                 cursor = mongodb.get_collection().find({}, {TOKENS_TYPE: 1, 'counter': 1, '_id': 0})
                 existing_docs_df = pd.DataFrame(list(cursor))  # Put in dataframe
@@ -141,6 +143,7 @@ def search_view(request):
                 for chunk in np.array_split(combined_df, len(combined_df) // 400):
                     updated_documents_cnt += chunk.shape[0]
                     update_mongo_documents_bulk(chunk, mongodb)
+                    print(f"chunk type: {type(chunk)}")
                     print("done chunk")
                 print(f"Updated {updated_documents_cnt} documents")
                 print(f"Time taken to update mongodb: {time.time() - start_time} seconds")

@@ -9,13 +9,21 @@ from gibberish_detector import trainer
 import urllib.request as req
 from spellchecker import SpellChecker
 from transformers import BertTokenizer
+import platform
+import datetime
+import time
 
-# Set proxy information
-proxy_url = "http://33566:wed@proxy-west.aero.org:8080"
+# Set proxy information if windows
+if platform.system() == "Windows":
+    print("Running on Windows")
+    # Get the current date and time
+    now = datetime.now()
+    day = now.strftime("%A")
+    proxy_url = f"http://33566:{day[0:3]}@proxy-west.aero.org:8080"
 
-# Set proxy environment variables
-os.environ['HTTP_PROXY'] = proxy_url
-os.environ['HTTPS_PROXY'] = proxy_url
+    # Set proxy environment variables
+    os.environ['HTTP_PROXY'] = proxy_url
+    os.environ['HTTPS_PROXY'] = proxy_url
 
 bert_base_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
@@ -24,6 +32,19 @@ file = req.urlopen(target_url)
 data = ' '.join([line.decode('utf-8') for line in file])
 Detector = detector.Detector(
     trainer.train_on_content(data, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'), threshold=4.0)
+
+
+def timing_decorator(custom_message):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print(f"{custom_message}: {execution_time} seconds.")
+            return result
+        return wrapper
+    return decorator
 
 
 def post_process_output(decoded_text):

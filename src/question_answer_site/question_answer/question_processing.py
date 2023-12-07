@@ -6,7 +6,8 @@ import nltk
 import spacy
 import numpy as np
 from urllib.parse import quote_plus
-from .utils import remove_non_word_chars, clean_text, tokens_to_embeddings, post_process_output, correct_spelling
+from .utils import remove_non_word_chars, clean_text, tokens_to_embeddings, post_process_output, correct_spelling, \
+    timing_decorator
 from .mongodb import MongoDb
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import BertTokenizer, BertForQuestionAnswering, RobertaTokenizer, RobertaForQuestionAnswering
@@ -15,26 +16,22 @@ from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKE
     DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url, \
     mongo_host, mongo_port, mongo_username, mongo_password, mongo_auth_db, mongo_database_name
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+import platform
 
+# Set proxy information if windows
+if platform.system() == "Windows":
+    print("Running on Windows")
+    # Get the current date and time
+    now = datetime.now()
+    day = now.strftime("%A")
+    proxy_url = f"http://33566:{day[0:3]}@proxy-west.aero.org:8080"
 
-# Set proxy information
-proxy_url = "http://33566:wed@proxy-west.aero.org:8080"
-
-# Set proxy environment variables
-os.environ['HTTP_PROXY'] = proxy_url
-os.environ['HTTPS_PROXY'] = proxy_url
-
-def timing_decorator(custom_message):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            start_time = time.time()
-            result = func(*args, **kwargs)
-            end_time = time.time()
-            execution_time = end_time - start_time
-            print(f"{custom_message}: {execution_time} seconds.")
-            return result
-        return wrapper
-    return decorator
+    # Set proxy environment variables
+    os.environ['HTTP_PROXY'] = proxy_url
+    os.environ['HTTPS_PROXY'] = proxy_url
+else:
+    print("Running on macOS!")
 
 
 class QuestionAnswer:
@@ -52,7 +49,7 @@ class QuestionAnswer:
         elif EMBEDDING_MODEL_TYPE.lower() == 'glove':
             # Load the custom spaCy model
             self.embedding_model = spacy.load(os.path.join(os.getcwd(), "question_answer", "embedding_models",
-                                              EMBEDDING_MODEL_FNAME.split(".bin")[0]))
+                                                           EMBEDDING_MODEL_FNAME.split(".bin")[0]))
 
         # BERT or ROBERTA model?
         if TRANSFORMER_MODEL_NAME.lower() in ['bert', 'bert-base-uncased', 'bert_base']:
@@ -72,8 +69,13 @@ class QuestionAnswer:
         else:
             self.TOKENS, self.EMBEDDINGS = "tokenized_query_search_less_sw", "query_embedding_search_less_sw"
 
-        # Set mongoDb information
-        self.collection_name = "parsed_documents"
+        # Escape the username and password
+        self.escaped_username = quote_plus(username)
+        self.escaped_password = quote_plus(password)
+
+        # Escape the username and password for Aerospace Mongo Credentials
+        self.aero_escaped_username = quote_plus(mongo_username)
+        self.aero_escaped_password = quote_plus(mongo_password)
 
     @timing_decorator("Total execution time")
     def answer_question(self, query: str):
@@ -114,28 +116,22 @@ class QuestionAnswer:
         for ans_dict in detected_answers:
             unique_documents.add(ans_dict['document'])
 
-        # Escape the username and password
-        escaped_username, escaped_password = quote_plus(username), quote_plus(password)
-        
-        # Aerospace Mongo Credentials
-        mongo_escaped_username = quote_plus(mongo_username)
-        mongo_escaped_password = quote_plus(mongo_password)
-
-        # use MongoDb class to connect to database instance and get the documents
-        # mongodb = MongoDb(username=escaped_username, 
-        #           password= escaped_password, 
-        #           cluster_url=cluster_url, 
-        #           database_name=database_name,
-        #           collection_name="extracted_text")
-        
-        # Aerospace credentials
-        mongodb = MongoDb(username=mongo_escaped_username, 
-                          password= mongo_escaped_password, 
-                          database_name=mongo_database_name,
-                          mongo_host=mongo_host,
-                          collection_name="extracted_text",
-                          mongo_port=mongo_port,
-                          mongo_auth_db=mongo_auth_db)
+        if platform.system() == "Darwin":
+            # Personal Mongo instance
+            mongodb = MongoDb(username=self.escaped_username,
+                              password=self.escaped_password,
+                              cluster_url=cluster_url,
+                              database_name=database_name,
+                              collection_name="extracted_text")
+        else:
+            # Aerospace credentials
+            mongodb = MongoDb(username=self.aero_escaped_username,
+                              password=self.aero_escaped_password,
+                              database_name=mongo_database_name,
+                              mongo_host=mongo_host,
+                              collection_name="extracted_text",
+                              mongo_port=mongo_port,
+                              mongo_auth_db=mongo_auth_db)
 
         source_text_dict = dict()
         if mongodb.connect():
@@ -168,16 +164,20 @@ class QuestionAnswer:
             candidate_docs_tokens_concatenated.extend(candidate_docs_tokens)
             prev_doc = candidate
 
-        chunks_info = [(candidate['tokens'], candidate['Document'], candidate['counter']) for sim_score, candidate in candidate_documents]
+        chunks_info = [(candidate['tokens'], candidate['Document'], candidate['counter']) for sim_score, candidate in
+                       candidate_documents]
         # Process each chunk separately and store logits
         with torch.no_grad():
             # Use ThreadPoolExecutor for parallel processing
             with ThreadPoolExecutor() as executor:
                 # Submit each chunk for processing concurrently
-                futures = [executor.submit(self.get_answer_and_confidence, chunk, doc, cntr, query_data) for (chunk, doc, cntr) in chunks_info]
+                futures = [executor.submit(self.get_answer_and_confidence, chunk, doc, cntr, query_data) for
+                           (chunk, doc, cntr) in chunks_info]
 
                 # Wait for all tasks to complete
-                candidate_responses_list = [future.result() for future in futures if "Sorry, I don't have information on that topic." not in future.result().get("answer", "")]
+                candidate_responses_list = [future.result() for future in futures if
+                                            "Sorry, I don't have information on that topic." not in future.result().get(
+                                                "answer", "")]
 
         return candidate_responses_list
 
@@ -311,42 +311,34 @@ class QuestionAnswer:
 
         :return: [dict] Keys -> tokens, tokens_less_sw, counter, Document
         """
-        # Escape the username and password
-        escaped_username = quote_plus(username)
-        escaped_password = quote_plus(password)
-        
-        # Aerospace Mongo Credentials
-        mongo_escaped_username = quote_plus(mongo_username)
-        mongo_escaped_password = quote_plus(mongo_password)
-
-        # Use MongoDb class to connect to database instance and get the documents
-        # mongodb = MongoDb(username=escaped_username, 
-        #           password= escaped_password, 
-        #           cluster_url=cluster_url, 
-        #           database_name=database_name,
-        #           collection_name="extracted_text")
-        
-        # Aerospace credentials
-        mongodb = MongoDb(username=mongo_escaped_username, 
-                          password= mongo_escaped_password, 
-                          database_name=mongo_database_name,
-                          mongo_host=mongo_host,
-                          collection_name=self.collection_name,
-                          mongo_port=mongo_port,
-                          mongo_auth_db=mongo_auth_db)
+        if platform.system() == "Darwin":
+            # Personal Mongo instance
+            mongodb = MongoDb(username=self.escaped_username,
+                              password=self.escaped_password,
+                              cluster_url=cluster_url,
+                              database_name=database_name,
+                              collection_name="parsed_documents")
+        else:
+            # Aerospace credentials
+            mongodb = MongoDb(username=self.aero_escaped_username,
+                              password=self.aero_escaped_password,
+                              database_name=mongo_database_name,
+                              mongo_host=mongo_host,
+                              collection_name="parsed_documents",
+                              mongo_port=mongo_port,
+                              mongo_auth_db=mongo_auth_db)
 
         if mongodb.connect():
             documents = mongodb.get_documents(query={}, inclusion={"tokens": 1, "tokens_less_sw": 1, "counter": 1,
                                                                    "Document": 1, "_id": 0})
             documents = list(documents)
-            # documents = [document for document in mongodb.iterate_documents()]
             print(f"Total documents: {mongodb.count_documents()}")
             mongodb.disconnect()
             return documents
         return []
 
     @timing_decorator("Execution time to process query")
-    def process_query(self, user_query:str):
+    def process_query(self, user_query: str):
         """
         Prepare query from similarity score and transformer
 
@@ -394,7 +386,8 @@ class QuestionAnswer:
         # Get the query embeddings for the candidate document search
         query_embeddings = tokens_to_embeddings(tokenized_query, self.embedding_model, RANDOM=False)
         query_embeddings_search = tokens_to_embeddings(tokenized_query_for_search, self.embedding_model, RANDOM=False)
-        query_embeddings_less_sw = tokens_to_embeddings(tokenized_query_for_search_less_sw, self.embedding_model, RANDOM=False)
+        query_embeddings_less_sw = tokens_to_embeddings(tokenized_query_for_search_less_sw, self.embedding_model,
+                                                        RANDOM=False)
 
         query_data = {
             "query": user_query,
@@ -445,7 +438,8 @@ class QuestionAnswer:
             # Split punctuation and hyphens from the word
             base_word = "".join(char for char in word if char.isalnum() or char in ["'", "-"])
             if any(list(map(lambda x: not any(x),
-                            tokens_to_embeddings(self.tokenizer.tokenize(base_word), self.embedding_model, RANDOM=False)))):
+                            tokens_to_embeddings(self.tokenizer.tokenize(base_word), self.embedding_model,
+                                                 RANDOM=False)))):
                 # Add the original word to the misspelled_words list
                 misspelled_words.append(word)
         # Correct the spelling of misspelled words

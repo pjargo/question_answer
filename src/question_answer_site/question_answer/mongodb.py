@@ -1,6 +1,7 @@
 from pymongo.server_api import ServerApi
 from pymongo.mongo_client import MongoClient
 from pymongo import errors
+import platform
 
 
 class MongoDb:
@@ -19,19 +20,20 @@ class MongoDb:
         
     def connect(self):
         try:
-            # Personl Connection
-            # uri = f"mongodb+srv://{self.username}:{self.password}@{self.cluster_url}.pog6zw2.mongodb.net/?retryWrites=true&w=majority"
-            # Create a new client and connect to the server
-            # self.client = MongoClient(uri, server_api=ServerApi('1'))
-            
-            # Aerospace connection
-            self.client = MongoClient(
-            host=[f"{self.mongo_host}:{self.mongo_port}"],
-            username=self.username,
-            password=self.password,
-            authSource=self.mongo_auth_db,
-            authMechanism='SCRAM-SHA-256')
-            
+            if platform.system() == "Darwin":
+                # Personal Mongo instance
+                uri = f"mongodb+srv://{self.username}:{self.password}@{self.cluster_url}.pog6zw2.mongodb.net/?retryWrites=true&w=majority"
+                # Create a new client and connect to the server
+                self.client = MongoClient(uri, server_api=ServerApi('1'))
+            else:
+                # Aerospace connection
+                self.client = MongoClient(
+                    host=[f"{self.mongo_host}:{self.mongo_port}"],
+                    username=self.username,
+                    password=self.password,
+                    authSource=self.mongo_auth_db,
+                    authMechanism='SCRAM-SHA-256')
+
             self.client.admin.command('ping')
             print("Pinged your deployment. You successfully connected to MongoDB!")
             return True
@@ -66,13 +68,25 @@ class MongoDb:
         return None
 
     def insert_document(self, document):
+        """
+
+        :param document: (dict or [dict]) list of dicts if insert many
+        :return: ids of inserted document(s)
+        """
         collection = self.get_collection()
         if collection is not None:
-            try:
-                result = collection.insert_one(document)
-                return result.inserted_id
-            except Exception as e:
-                print(f"Error inserting document: {e}")
+            if type(document) == list:  # Insert more than one document
+                try:
+                    result = collection.insert_many(document)
+                    return result.inserted_ids
+                except Exception as e:
+                    print(f"Error inserting documents: {e}")
+            else:  # Insert one document
+                try:
+                    result = collection.insert_one(document)
+                    return result.inserted_id
+                except Exception as e:
+                    print(f"Error inserting document: {e}")
         return None
 
     def update_document(self, query, update):

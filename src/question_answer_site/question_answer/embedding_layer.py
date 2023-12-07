@@ -10,6 +10,7 @@ import subprocess
 
 
 def get_embedding_model():
+    embedding_model = None
     if EMBEDDING_MODEL_TYPE == 'Word2Vec':
         embedding_model = Word2Vec.load(os.getcwd(), "question_answer", "embedding_models", EMBEDDING_MODEL_FNAME)
     elif EMBEDDING_MODEL_TYPE.lower() == 'glove':
@@ -107,6 +108,11 @@ def update_embedding_model(df):
 
 
 def update_mongo_documents_bulk(rows, mongodb):
+    """
+
+    :param rows: (pandas.dataframe)
+    :param mongodb: (MongoDb) "parsed_documents" collection
+    """
     bulk_operations = []
 
     for index, row in rows.iterrows():
