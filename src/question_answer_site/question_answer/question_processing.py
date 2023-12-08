@@ -11,7 +11,6 @@ from .utils import remove_non_word_chars, clean_text, tokens_to_embeddings, post
 from .mongodb import MongoDb
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import BertTokenizer, BertForQuestionAnswering, RobertaTokenizer, RobertaForQuestionAnswering
-import time
 from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKENS_EMBEDDINGS, database_name, \
     DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url, \
     mongo_host, mongo_port, mongo_username, mongo_password, mongo_auth_db, mongo_database_name
@@ -112,9 +111,7 @@ class QuestionAnswer:
         :return: (dict) key -> source document name, value -> Full text for document from Mongo
         """
         # Get the list of unique documents
-        unique_documents = set()
-        for ans_dict in detected_answers:
-            unique_documents.add(ans_dict['document'])
+        unique_documents = {ans_dict['document'] for ans_dict in detected_answers}
 
         if platform.system() == "Darwin":
             # Personal Mongo instance

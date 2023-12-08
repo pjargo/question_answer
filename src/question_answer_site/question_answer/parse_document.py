@@ -14,8 +14,7 @@ from .mongodb import MongoDb
 from .utils import remove_non_text_elements, clean_text, remove_non_word_chars, deal_with_line_breaks_and_hyphenations, \
     tokens_to_embeddings, timing_decorator
 from .config import username, password, cluster_url, database_name, mongo_host, mongo_port, mongo_username, \
-    mongo_password, \
-    mongo_auth_db, mongo_database_name
+    mongo_password, mongo_auth_db, mongo_database_name
 from urllib.parse import quote_plus
 from gibberish_detector import detector
 from gibberish_detector import trainer
@@ -79,9 +78,8 @@ def update_collection(collection: str, parsed_data):
                           mongo_auth_db=mongo_auth_db)
 
     if mongodb.connect():
-        print(f"Updating the '{collection}' collection")
-        doc_cnt = mongodb.count_documents()
-        print(f"{doc_cnt} documents in '{collection}' before adding")
+        print(f"Updating the '{collection}' collection...")
+        print(f"{mongodb.count_documents()} documents in '{collection}' before adding.")
 
         # Insert the JSON data as a document into the collection
         document_tracker = set()
@@ -95,20 +93,19 @@ def update_collection(collection: str, parsed_data):
             if data_obj['Document'] not in document_tracker and collection == "extracted_text":
                 for key in never_need + parsed_need:
                     data_obj.pop(key)
-
+                documents.append(data_obj)  # Add to documents list for bulk insert
                 document_tracker.add(data_obj['Document'])
-                # mongodb.insert_document(data_obj)  # Add the data to the mongo collection
 
             # Update parsed_documents collection
             elif collection == "parsed_documents":
                 for key in never_need + extracted_need:
                     data_obj.pop(key)
-                # mongodb.insert_document(data_obj)
-            documents.append(data_obj)
+                documents.append(data_obj)  # Add to documents list for bulk insert
+
         print("inserting documents...")
         mongodb.insert_document(documents)
-        doc_cnt = mongodb.count_documents()
-        print(f"{doc_cnt} documents in '{collection}' after adding")
+
+        print(f"{ mongodb.count_documents()} documents in '{collection}' after adding.")
     mongodb.disconnect()  # Close mongo client
 
 

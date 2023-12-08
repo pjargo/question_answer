@@ -70,8 +70,8 @@ def update_embedding_model(df):
 
         # Write the "tokens" column to a text file with each row on a separate line
         df[TOKENS_TYPE].apply(lambda x: ' '.join(x)).to_csv(output_file, header=False, index=False,
-                                                                     sep='\n',
-                                                                     quoting=csv.QUOTE_NONE)
+                                                            sep='\n',
+                                                            quoting=csv.QUOTE_NONE)
 
         os.environ["VECTOR_SIZE"] = str(VECTOR_SIZE)
         os.environ["WINDOW_SIZE"] = str(WINDOW)

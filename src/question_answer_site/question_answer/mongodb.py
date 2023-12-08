@@ -50,6 +50,7 @@ class MongoDb:
         if self.client:
             db = self.client[self.database_name]
             collection = db[self.collection_name]
+            print(self.collection_name)
             return collection
         else:
             return None
