@@ -17,7 +17,7 @@ import time
 if platform.system() == "Windows":
     print("Running on Windows")
     # Get the current date and time
-    now = datetime.now()
+    now = datetime.datetime.now()
     day = now.strftime("%A")
     proxy_url = f"http://33566:{day[0:3]}@proxy-west.aero.org:8080"
 

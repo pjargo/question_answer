@@ -16,14 +16,14 @@ from .config import TOKENIZER, EMBEDDING_MODEL_FNAME, EMBEDDING_MODEL_TYPE, TOKE
     DOCUMENT_TOKENS, TOP_N, TRANSFORMER_MODEL_NAME, METHOD, MAX_QUERY_LENGTH, username, password, cluster_url, \
     mongo_host, mongo_port, mongo_username, mongo_password, mongo_auth_db, mongo_database_name
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+import datetime
 import platform
 
 # Set proxy information if windows
 if platform.system() == "Windows":
     print("Running on Windows")
     # Get the current date and time
-    now = datetime.now()
+    now = datetime.datetime.now()
     day = now.strftime("%A")
     proxy_url = f"http://33566:{day[0:3]}@proxy-west.aero.org:8080"
 
