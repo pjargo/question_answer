@@ -1,3 +1,5 @@
+import copy
+
 from langdetect import detect_langs
 import fitz
 import hashlib
@@ -14,7 +16,7 @@ from .mongodb import MongoDb
 from .utils import remove_non_text_elements, clean_text, remove_non_word_chars, deal_with_line_breaks_and_hyphenations, \
     tokens_to_embeddings, timing_decorator
 from .config import username, password, cluster_url, database_name, mongo_host, mongo_port, mongo_username, \
-    mongo_password, mongo_auth_db, mongo_database_name
+    mongo_password, mongo_auth_db, mongo_database_name, DOCUMENT_EMBEDDING, DOCUMENT_TOKENS
 from urllib.parse import quote_plus
 from gibberish_detector import detector
 from gibberish_detector import trainer
@@ -83,29 +85,32 @@ def update_collection(collection: str, parsed_data):
 
         # Insert the JSON data as a document into the collection
         document_tracker = set()
-        never_need = ['language', 'language_probability', 'Path', 'token_embeddings', 'chunk_text',
-                      'chunk_text_less_sw']
-        parsed_need = ['counter', 'token_embeddings_less_sw', 'tokens_less_sw', 'tokens']
-        extracted_need = ['Original_Text', 'Text']
+        # never_need = ['language', 'language_probability', 'Path', 'token_embeddings', 'chunk_text',
+        #               'chunk_text_less_sw']
+        both_need = ['sha_256', 'counter', 'Document']
+        parsed_need = list({'counter', DOCUMENT_EMBEDDING, DOCUMENT_TOKENS, 'tokens'}) + both_need
+        extracted_need = ['Original_Text', 'Text'] + both_need
         documents = list()
         for data_obj in parsed_data:
             # Update extracted_text collection
             if data_obj['Document'] not in document_tracker and collection == "extracted_text":
-                for key in never_need + parsed_need:
-                    data_obj.pop(key)
+                for key in copy.deepcopy(list(data_obj.keys())):
+                    if key not in extracted_need:
+                        data_obj.pop(key)
                 documents.append(data_obj)  # Add to documents list for bulk insert
                 document_tracker.add(data_obj['Document'])
 
             # Update parsed_documents collection
             elif collection == "parsed_documents":
-                for key in never_need + extracted_need:
-                    data_obj.pop(key)
+                for key in copy.deepcopy(list(data_obj.keys())):
+                    if key not in parsed_need:
+                        data_obj.pop(key)
                 documents.append(data_obj)  # Add to documents list for bulk insert
 
         print("inserting documents...")
         mongodb.insert_document(documents)
 
-        print(f"{ mongodb.count_documents()} documents in '{collection}' after adding.")
+        print(f"{mongodb.count_documents()} documents in '{collection}' after adding.")
     mongodb.disconnect()  # Close mongo client
 
 
@@ -184,7 +189,7 @@ def parse_document(directory, embedding_layer_model=None, tokenizer=bert_base_to
     for filename in all_docx:
         # Get text and languages
         filepath = os.path.join(directory, filename)
-        print(f"file path: {filepath},\nfile name: {filename}")
+        print(f"file name: {filename}")
         text = get_text(filepath)
         langs = get_language(text)
 
@@ -217,7 +222,7 @@ def parse_document(directory, embedding_layer_model=None, tokenizer=bert_base_to
                                      tokenizer=tokenizer)
 
     # Don't add document if it already exists, Add counter
-    max_cnter = 0  # Get the largest value in the storage directory if json files are already in there
+    max_cnter = 0  # Get the largest counter value in the 'parsed_documents' collection
     sha_set = set()
     mongo_docs = get_all_counter_sha()
     for doc in mongo_docs:
@@ -254,6 +259,19 @@ def text_to_dict(text, langs):
 
     sha256 = get_sha256(text)  # Get sha256
 
+    # section_dict = {'Document': '',
+    #                 'Path': '',
+    #                 'Text': text,
+    #                 'Original_Text': text,
+    #                 'sha_256': sha256,
+    #                 'language': language,
+    #                 'language_probability': language_prob,
+    #                 'chunk_text': '',
+    #                 'chunk_text_less_sw': '',
+    #                 'tokens': [],
+    #                 'tokens_less_sw': [],
+    #                 'token_embeddings': [],
+#                     'token_embeddings_less_sw':[]}
     section_dict = {'Document': '',
                     'Path': '',
                     'Text': text,
@@ -261,13 +279,10 @@ def text_to_dict(text, langs):
                     'sha_256': sha256,
                     'language': language,
                     'language_probability': language_prob,
-                    'chunk_text': '',
-                    'chunk_text_less_sw': '',
                     'tokens': [],
                     'tokens_less_sw': [],
                     'token_embeddings': [],
-                    'token_embeddings_less_sw': []}
-
+                    'token_embeddings_less_sw':[]}
     return section_dict
 
 
@@ -339,16 +354,21 @@ def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0, addition
     for _, row in df.iterrows():
         # Get the tokens and metadata for the current row
         tokens = row["tokens"]
-        metadata = row.drop("tokens").drop("token_embeddings").drop("token_embeddings_less_sw") \
-            .drop("tokens_less_sw").drop("chunk_text").drop(
-            "chunk_text_less_sw")  # Drop the "tokens" column from the metadata
-
+        # metadata = row.drop("tokens").drop("token_embeddings").drop("token_embeddings_less_sw") \
+        #     .drop("tokens_less_sw").drop("chunk_text").drop(
+        #     "chunk_text_less_sw")  # Drop the "tokens" column from the metadata
+        metadata = row.drop("tokens").drop("token_embeddings").drop("token_embeddings_less_sw").drop("tokens_less_sw")
         # Chunk the tokens into sequences of length 100
-        chunked_tokens, chunked_tokens_less_sw, chunked_text, chunked_text_less_sw = chunk_tokens(tokens,
-                                                                                                  max_chunk_length=chunk_size,
-                                                                                                  overlap=overlap,
-                                                                                                  additional_stopwords=additional_stopwords,
-                                                                                                  tokenizer=tokenizer)
+        # chunked_tokens, chunked_tokens_less_sw, chunked_text, chunked_text_less_sw = chunk_tokens(tokens,
+        #                                                                                           max_chunk_length=chunk_size,
+        #                                                                                           overlap=overlap,
+        #                                                                                           additional_stopwords=additional_stopwords,
+        #                                                                                           tokenizer=tokenizer)
+        chunked_tokens, chunked_tokens_less_sw, = chunk_tokens(tokens,
+                                                               max_chunk_length=chunk_size,
+                                                               overlap=overlap,
+                                                               additional_stopwords=additional_stopwords,
+                                                               tokenizer=tokenizer)
 
         # Pad the sequences less than 100 tokens, don't need to pad the chunked token less stop words. Only for
         # candidate search
@@ -364,12 +384,19 @@ def get_chunked_df(df, chunk_size=100, embedding_model=None, overlap=0, addition
             embedded_tokens_less_sw = [[] for token_list in chunked_tokens_less_sw]
 
         # Create new rows for each chunked and padded tokens along with metadata
-        for padded_tokens_chunk, embedded_tokens_chunk, tokens_chunk_less_sw, embedded_tokens_chunk_less_sw, chunk_text, chunk_text_less_sw in \
-                zip(padded_tokens, embedded_tokens, chunked_tokens_less_sw, embedded_tokens_less_sw, chunked_text,
-                    chunked_text_less_sw):
-            new_row = {"chunk_text": chunk_text,
-                       "chunk_text_less_sw": chunk_text_less_sw,
-                       "tokens": padded_tokens_chunk,
+        # for padded_tokens_chunk, embedded_tokens_chunk, tokens_chunk_less_sw, embedded_tokens_chunk_less_sw, chunk_text, chunk_text_less_sw in \
+        #         zip(padded_tokens, embedded_tokens, chunked_tokens_less_sw, embedded_tokens_less_sw, chunked_text,
+        #             chunked_text_less_sw):
+        #     new_row = {"chunk_text": chunk_text,
+        #                "chunk_text_less_sw": chunk_text_less_sw,
+        #                "tokens": padded_tokens_chunk,
+        #                "tokens_less_sw": tokens_chunk_less_sw,
+        #                "token_embeddings": embedded_tokens_chunk,
+        #                "token_embeddings_less_sw": embedded_tokens_chunk_less_sw,
+        #                **metadata}
+        for padded_tokens_chunk, embedded_tokens_chunk, tokens_chunk_less_sw, embedded_tokens_chunk_less_sw in \
+                zip(padded_tokens, embedded_tokens, chunked_tokens_less_sw, embedded_tokens_less_sw):
+            new_row = {"tokens": padded_tokens_chunk,
                        "tokens_less_sw": tokens_chunk_less_sw,
                        "token_embeddings": embedded_tokens_chunk,
                        "token_embeddings_less_sw": embedded_tokens_chunk_less_sw,
@@ -400,8 +427,8 @@ def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[
     chunked_tokens = []
     chunked_tokens_less_sw = []
 
-    chunk_text = []
-    chunk_text_less_sw = []
+    # chunk_text = []
+    # chunk_text_less_sw = []
 
     current_chunk = []
     current_length = 0
@@ -417,10 +444,10 @@ def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[
             current_chunk_less_sw = [t for t in current_chunk if t not in nltk_stop_words]
             chunked_tokens_less_sw.append(current_chunk_less_sw)
 
-            current_chunk_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk))
-            chunk_text.append(current_chunk_text)
-            current_chunk_text_less_sw = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk_less_sw))
-            chunk_text_less_sw.append(current_chunk_text_less_sw)
+            # current_chunk_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk))
+            # chunk_text.append(current_chunk_text)
+            # current_chunk_text_less_sw = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk_less_sw))
+            # chunk_text_less_sw.append(current_chunk_text_less_sw)
 
             current_chunk = []
             current_length = 0
@@ -432,11 +459,11 @@ def chunk_tokens(tokens, max_chunk_length=100, overlap=0, additional_stopwords=[
         current_chunk_less_sw = [t for t in current_chunk if t not in nltk_stop_words]
         chunked_tokens_less_sw.append(current_chunk_less_sw)
 
-        current_chunk_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk))
-        chunk_text.append(current_chunk_text)
-        chunk_text_less_sw.append(current_chunk_text)
+        # current_chunk_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(current_chunk))
+        # chunk_text.append(current_chunk_text)
+        # chunk_text_less_sw.append(current_chunk_text)
 
-    return chunked_tokens, chunked_tokens_less_sw, chunk_text, chunk_text_less_sw
+    return chunked_tokens, chunked_tokens_less_sw  # , chunk_text, chunk_text_less_sw
 
 
 def get_all_counter_sha():

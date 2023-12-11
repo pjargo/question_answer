@@ -61,7 +61,7 @@ def update_embedding_model(df):
         model = Word2Vec(**kwargs)
 
         # Save the model
-        model.save(os.path.join("..", "models", "word_embeddings", EMBEDDING_MODEL_FNAME))
+        model.save(os.path.join(os.getcwd(), "question_answer", "embedding_models", EMBEDDING_MODEL_FNAME))
 
     elif EMBEDDING_MODEL_TYPE == 'glove':
         # Specify the file path for the output text file
