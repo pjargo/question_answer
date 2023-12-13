@@ -84,7 +84,7 @@ class QuestionAnswer:
         :return: JSON containing answer, source data and recommended documents if no answer found
         """
         query_data = self.process_query(query)
-
+        print(query_data)
         # Get the candidate documents, top_n_documents: (similarity_score, document dictionary)
         top_n_documents = self.get_candidate_docs(query_data)
         top_n_documents.sort(key=lambda x: x[1]['counter'])

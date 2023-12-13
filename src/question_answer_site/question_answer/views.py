@@ -158,37 +158,39 @@ def search_view(request):
 
         else:
             query = request.POST.get('query', '')
-            # You can now process the query and send it to the backend for further processing.
-            questionAnswer = QuestionAnswer()
-            response_data = questionAnswer.answer_question(query)
-            results = response_data.get("results", [])
-            source_text_dict = response_data.get("source_text_dictionary", {})
-            doc_rec_set = response_data.get("no_ans_found", {})
+            if len(query) > 0:
 
-            # Create a dictionary to store highlighted documents
-            highlighted_documents = {}
+                # You can now process the query and send it to the backend for further processing.
+                questionAnswer = QuestionAnswer()
+                response_data = questionAnswer.answer_question(query)
+                results = response_data.get("results", [])
+                source_text_dict = response_data.get("source_text_dictionary", {})
+                doc_rec_set = response_data.get("no_ans_found", {})
 
-            # Iterate over results and update highlighted_documents
-            for result in results:
-                document_name = result.get("document", "")
-                answer = result.get("answer", "")
-                confidence_score = result.get("confidence_score", "")
+                # Create a dictionary to store highlighted documents
+                highlighted_documents = {}
 
-                # Escape HTML characters in answer and context
-                answer = escape(answer)
+                # Iterate over results and update highlighted_documents
+                for result in results:
+                    document_name = result.get("document", "")
+                    answer = result.get("answer", "")
+                    confidence_score = result.get("confidence_score", "")
 
-                if document_name not in highlighted_documents:
-                    # If document is not in the dictionary, add it with the first answer
-                    highlighted_documents[document_name] = {
-                        'original_text': source_text_dict.get(document_name, ""),
-                        'highlights': [(answer, confidence_score)],
-                        'document': document_name
-                    }
-                else:
-                    # If document is already in the dictionary, append the new answer
-                    highlighted_documents[document_name]['highlights'].append((answer, confidence_score))
-            # Convert the values of highlighted_documents to a list for easier iteration in the template
-            highlighted_documents_list = list(highlighted_documents.values())
+                    # Escape HTML characters in answer and context
+                    answer = escape(answer)
+
+                    if document_name not in highlighted_documents:
+                        # If document is not in the dictionary, add it with the first answer
+                        highlighted_documents[document_name] = {
+                            'original_text': source_text_dict.get(document_name, ""),
+                            'highlights': [(answer, confidence_score)],
+                            'document': document_name
+                        }
+                    else:
+                        # If document is already in the dictionary, append the new answer
+                        highlighted_documents[document_name]['highlights'].append((answer, confidence_score))
+                # Convert the values of highlighted_documents to a list for easier iteration in the template
+                highlighted_documents_list = list(highlighted_documents.values())
 
     return render(request, 'search/search.html', {
         'query_text': query,
