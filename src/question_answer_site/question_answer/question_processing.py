@@ -243,10 +243,16 @@ class QuestionAnswer:
         :param query_data: (dict) Processed query
         :return: [(float, dict)] sorted list of tuples containing similarity score and data from Mongo
         """
+        query_embedding = np.array(query_data[self.EMBEDDINGS])
+        query_tokens = np.array(query_data[self.TOKENS])
+
+        # remove the paddings from the query
+        query_embedding = np.array([emb for emb, token in zip(query_embedding, query_tokens) if token != '[PAD]'])
+
         documents = self.get_documents_from_mongo()
         with ThreadPoolExecutor() as executor:
             # Submit each document for processing concurrently
-            futures = [executor.submit(self.get_doc_sim_scores, doc, query_data) for doc in documents]
+            futures = [executor.submit(self.get_doc_sim_scores, doc, query_embedding) for doc in documents]
 
             # Wait for all tasks to complete
             sim_scores = [future.result() for future in futures]
@@ -254,7 +260,7 @@ class QuestionAnswer:
 
         return sim_scores[:TOP_N]
 
-    def get_doc_sim_scores(self, document, query_data):
+    def get_doc_sim_scores(self, document, query_embedding):
         """
         Cosine similarity score between query embedding and
             - BOTH: combination of COMBINE_MEAN and MEAN_MAX
@@ -263,15 +269,9 @@ class QuestionAnswer:
             - MEAN_MEAN: Avg. Cosine similarity between embedding in query and embedding in chunk
 
         :param document: (dict) Mongo queried document from parsed_documents
-        :param query_data: (dict) Processed query
+        :param query_embedding: [float]
         :return: (float, dict) Similarity score and original document data
         """
-        query_embedding = np.array(query_data[self.EMBEDDINGS])
-        query_tokens = np.array(query_data[self.TOKENS])
-
-        # remove the paddings from the query
-        query_embedding = np.array([emb for emb, token in zip(query_embedding, query_tokens) if token != '[PAD]'])
-
         # List to store cosine similarity scores and corresponding document filenames
         chunk_tokens = np.array(document[DOCUMENT_TOKENS])
         chunk_embeddings = tokens_to_embeddings(document[DOCUMENT_TOKENS], self.embedding_model)
@@ -299,7 +299,7 @@ class QuestionAnswer:
             combine_mean_similarity = np.mean(combine_mean_similarity)
             similarity = .5 * mean_max_similarity + .5 * combine_mean_similarity
 
-        return (similarity, document)
+        return similarity, document
 
     @timing_decorator("Time to fetch all documents")
     def get_documents_from_mongo(self):
